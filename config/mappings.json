@@ -1,0 +1,20 @@
+{
+  "mappings": [
+    {
+      "enabled": true,
+      "sourceType": "button",
+      "sourceIndex": 0,
+      "messageTemplate": "BTN_{source}={value}",
+      "axisDeltaThreshold": 0.05,
+      "axisMinIntervalMs": 50
+    },
+    {
+      "enabled": true,
+      "sourceType": "axis",
+      "sourceIndex": 0,
+      "messageTemplate": "AXIS_{source}={value}",
+      "axisDeltaThreshold": 0.08,
+      "axisMinIntervalMs": 60
+    }
+  ]
+}
