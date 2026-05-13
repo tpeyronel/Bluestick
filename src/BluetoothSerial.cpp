@@ -201,6 +201,31 @@ bool BluetoothSerialClient::sendLine(const std::string& message) {
   return true;
 }
 
+bool BluetoothSerialClient::sendBytes(const void* data, size_t size) {
+  if (!isConnected()) {
+    setError("No connected serial device");
+    return false;
+  }
+
+  if (data == nullptr || size == 0) {
+    setError("Invalid data buffer");
+    return false;
+  }
+
+  DWORD written = 0;
+  if (!WriteFile(serialHandle_, data, static_cast<DWORD>(size), &written, nullptr)) {
+    setError("WriteFile failed");
+    return false;
+  }
+
+  if (written != size) {
+    setError("Partial write on serial port");
+    return false;
+  }
+
+  return true;
+}
+
 bool BluetoothSerialClient::isConnected() const {
   return serialHandle_ != INVALID_HANDLE_VALUE;
 }

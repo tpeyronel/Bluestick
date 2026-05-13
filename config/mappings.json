@@ -3,7 +3,8 @@
     {
       "enabled": true,
       "sourceType": "button",
-      "sourceIndex": 0,
+      "sourceIndex": 3,
+      "messageType": "toggle_tc",
       "messageTemplate": "BTN_{source}={value}",
       "axisDeltaThreshold": 0.05,
       "axisMinIntervalMs": 50
@@ -11,7 +12,8 @@
     {
       "enabled": true,
       "sourceType": "axis",
-      "sourceIndex": 0,
+      "sourceIndex": 5,
+      "messageType": "set_throttle",
       "messageTemplate": "AXIS_{source}={value}",
       "axisDeltaThreshold": 0.08,
       "axisMinIntervalMs": 60

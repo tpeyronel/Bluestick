@@ -46,7 +46,7 @@ add_executable(bluestick WIN32
   src/ConfigStore.cpp
 )
 
-target_include_directories(bluestick PRIVATE include)
+target_include_directories(bluestick PRIVATE include src)
 target_link_libraries(bluestick PRIVATE
   imgui_lib
   nlohmann_json::nlohmann_json

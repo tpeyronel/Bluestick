@@ -7,6 +7,31 @@
 
 namespace bluestick {
 
+namespace {
+
+MappingMessageType parseMessageType(const std::string& value, MappingSourceType sourceType) {
+  if (value == "set_throttle") {
+    return MappingMessageType::SetThrottle;
+  }
+  if (value == "toggle_tc") {
+    return MappingMessageType::ToggleTc;
+  }
+  return sourceType == MappingSourceType::Axis ? MappingMessageType::SetThrottle :
+                                                 MappingMessageType::ToggleTc;
+}
+
+const char* messageTypeToString(MappingMessageType type) {
+  switch (type) {
+    case MappingMessageType::SetThrottle:
+      return "set_throttle";
+    case MappingMessageType::ToggleTc:
+      return "toggle_tc";
+  }
+  return "toggle_tc";
+}
+
+}  // namespace
+
 std::optional<std::vector<MappingRule>> ConfigStore::loadMappings(const std::string& path,
                                                                    std::string& error) {
   error.clear();
@@ -39,6 +64,7 @@ std::optional<std::vector<MappingRule>> ConfigStore::loadMappings(const std::str
 
     rule.sourceIndex = item.value("sourceIndex", 0);
     rule.messageTemplate = item.value("messageTemplate", "{source}:{value}");
+    rule.messageType = parseMessageType(item.value("messageType", ""), rule.sourceType);
     rule.axisDeltaThreshold = item.value("axisDeltaThreshold", 0.05f);
     rule.axisMinIntervalMs = item.value("axisMinIntervalMs", 50);
 
@@ -61,6 +87,7 @@ bool ConfigStore::saveMappings(const std::string& path,
         {"enabled", rule.enabled},
         {"sourceType", rule.sourceType == MappingSourceType::Axis ? "axis" : "button"},
         {"sourceIndex", rule.sourceIndex},
+      {"messageType", messageTypeToString(rule.messageType)},
         {"messageTemplate", rule.messageTemplate},
         {"axisDeltaThreshold", rule.axisDeltaThreshold},
         {"axisMinIntervalMs", rule.axisMinIntervalMs},

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,7 @@ public:
   bool connect(const std::string& port, DWORD baudRate);
   void disconnect();
   bool sendLine(const std::string& message);
+  bool sendBytes(const void* data, size_t size);
 
   bool isConnected() const;
   std::string currentPort() const;

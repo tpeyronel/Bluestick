@@ -73,6 +73,16 @@ bool CreateDeviceD3D(HWND hWnd) {
   return true;
 }
 
+std::string describeMessage(const Message_t& message) {
+  switch (message.type) {
+    case MSG_TYPE_SET_THROTTLE:
+      return "SetThrottle=" + std::to_string(message.set_throttle.throttle);
+    case MSG_TYPE_TOGGLE_TC:
+      return "ToggleTc";
+  }
+  return "Unknown";
+}
+
 void CleanupDeviceD3D() {
   if (g_mainRenderTargetView != nullptr) {
     g_mainRenderTargetView->Release();
@@ -207,13 +217,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   {
     bluestick::MappingRule buttonRule;
     buttonRule.sourceType = bluestick::MappingSourceType::Button;
-    buttonRule.sourceIndex = static_cast<int>(bluestick::GamepadButton::A);
+    buttonRule.sourceIndex = static_cast<int>(bluestick::GamepadButton::Y);
+    buttonRule.messageType = bluestick::MappingMessageType::ToggleTc;
     buttonRule.messageTemplate = "BTN_{source}={value}";
     rules.push_back(buttonRule);
 
     bluestick::MappingRule axisRule;
     axisRule.sourceType = bluestick::MappingSourceType::Axis;
-    axisRule.sourceIndex = static_cast<int>(bluestick::GamepadAxis::LX);
+    axisRule.sourceIndex = static_cast<int>(bluestick::GamepadAxis::RT);
+    axisRule.messageType = bluestick::MappingMessageType::SetThrottle;
     axisRule.messageTemplate = "AXIS_{source}={value}";
     axisRule.axisDeltaThreshold = 0.08f;
     axisRule.axisMinIntervalMs = 60;
@@ -253,10 +265,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     const auto messages =
         mappingEngine.evaluate(previousSnapshot, currentSnapshot, std::chrono::steady_clock::now());
-    for (const std::string& message : messages) {
+    for (const auto& message : messages) {
       if (serialClient.isConnected()) {
-        if (serialClient.sendLine(message)) {
-          pushLog(logs, "TX: " + message);
+        if (serialClient.sendBytes(&message, MESSAGE_SIZE)) {
+          pushLog(logs, "TX: " + describeMessage(message));
         } else {
           pushLog(logs, "TX failed: " + serialClient.lastError());
         }

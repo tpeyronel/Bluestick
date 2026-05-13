@@ -2,10 +2,33 @@
 
 #include <algorithm>
 #include <cmath>
-#include <format>
 #include <string>
 
 namespace bluestick {
+
+namespace {
+
+uint8_t mapThrottle(float value) {
+  const float clamped = std::clamp(value, 0.0f, 1.0f);
+  const float scaled = clamped * 255.0f;
+  return static_cast<uint8_t>(std::lround(scaled));
+}
+
+Message_t buildMessage(const MappingRule& rule, float value) {
+  Message_t message{};
+  switch (rule.messageType) {
+    case MappingMessageType::SetThrottle:
+      message.set_throttle.type = MSG_TYPE_SET_THROTTLE;
+      message.set_throttle.throttle = mapThrottle(value);
+      break;
+    case MappingMessageType::ToggleTc:
+      message.toggle_tc.type = MSG_TYPE_TOGGLE_TC;
+      break;
+  }
+  return message;
+}
+
+}  // namespace
 
 void MappingEngine::setRules(const std::vector<MappingRule>& rules) {
   rules_ = rules;
@@ -15,10 +38,10 @@ const std::vector<MappingRule>& MappingEngine::rules() const {
   return rules_;
 }
 
-std::vector<std::string> MappingEngine::evaluate(const InputSnapshot& previous,
-                                                 const InputSnapshot& current,
-                                                 std::chrono::steady_clock::time_point now) {
-  std::vector<std::string> messages;
+std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
+                                               const InputSnapshot& current,
+                                               std::chrono::steady_clock::time_point now) {
+  std::vector<Message_t> messages;
   if (!current.connected) {
     return messages;
   }
@@ -36,12 +59,18 @@ std::vector<std::string> MappingEngine::evaluate(const InputSnapshot& previous,
 
       const size_t idx = static_cast<size_t>(rule.sourceIndex);
       if (previous.buttons[idx] != current.buttons[idx]) {
-        messages.push_back(renderTemplate(rule, current.buttons[idx] ? 1.0f : 0.0f));
+        if (current.buttons[idx] && rule.messageType == MappingMessageType::ToggleTc) {
+          messages.push_back(buildMessage(rule, 1.0f));
+        }
       }
       continue;
     }
 
     if (rule.sourceIndex < 0 || rule.sourceIndex >= static_cast<int>(AxisCount)) {
+      continue;
+    }
+
+    if (rule.messageType != MappingMessageType::SetThrottle) {
       continue;
     }
 
@@ -57,7 +86,7 @@ std::vector<std::string> MappingEngine::evaluate(const InputSnapshot& previous,
                                 rule.axisMinIntervalMs;
 
     if (delta >= rule.axisDeltaThreshold && intervalOk) {
-      messages.push_back(renderTemplate(rule, currentValue));
+      messages.push_back(buildMessage(rule, currentValue));
       lastAxisSentValues_[idx] = currentValue;
       lastAxisSentTimes_[static_cast<int>(idx)] = now;
     }
@@ -97,24 +126,6 @@ std::vector<std::string> MappingEngine::allAxisSources() {
     result.push_back(GamepadInput::axisName(static_cast<GamepadAxis>(i)));
   }
   return result;
-}
-
-std::string MappingEngine::renderTemplate(const MappingRule& rule, float value) {
-  std::string rendered = rule.messageTemplate;
-
-  const std::string source = sourceLabel(rule);
-
-  const size_t sourcePos = rendered.find("{source}");
-  if (sourcePos != std::string::npos) {
-    rendered.replace(sourcePos, 8, source);
-  }
-
-  const size_t valuePos = rendered.find("{value}");
-  if (valuePos != std::string::npos) {
-    rendered.replace(valuePos, 7, std::format("{:.3f}", value));
-  }
-
-  return rendered;
 }
 
 }  // namespace bluestick
