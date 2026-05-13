@@ -14,6 +14,10 @@ uint8_t mapThrottle(float value) {
   return static_cast<uint8_t>(std::lround(scaled));
 }
 
+bool isNearZero(float value) {
+  return value <= 0.01f;
+}
+
 Message_t buildMessage(const MappingRule& rule, float value) {
   Message_t message{};
   switch (rule.messageType) {
@@ -84,6 +88,13 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
     const bool intervalOk = !hasSentBefore ||
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - iter->second).count() >=
                                 rule.axisMinIntervalMs;
+
+    if (isNearZero(currentValue) && previousSentValue > 0.0f) {
+      messages.push_back(buildMessage(rule, 0.0f));
+      lastAxisSentValues_[idx] = 0.0f;
+      lastAxisSentTimes_[static_cast<int>(idx)] = now;
+      continue;
+    }
 
     if (delta >= rule.axisDeltaThreshold && intervalOk) {
       messages.push_back(buildMessage(rule, currentValue));

@@ -227,8 +227,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     axisRule.sourceIndex = static_cast<int>(bluestick::GamepadAxis::RT);
     axisRule.messageType = bluestick::MappingMessageType::SetThrottle;
     axisRule.messageTemplate = "AXIS_{source}={value}";
-    axisRule.axisDeltaThreshold = 0.08f;
-    axisRule.axisMinIntervalMs = 60;
+    axisRule.axisDeltaThreshold = 0.02f;
+    axisRule.axisMinIntervalMs = 20;
     rules.push_back(axisRule);
   }
 

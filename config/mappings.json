@@ -15,8 +15,8 @@
       "sourceIndex": 5,
       "messageType": "set_throttle",
       "messageTemplate": "AXIS_{source}={value}",
-      "axisDeltaThreshold": 0.08,
-      "axisMinIntervalMs": 60
+      "axisDeltaThreshold": 0.02,
+      "axisMinIntervalMs": 20
     }
   ]
 }
