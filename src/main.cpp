@@ -272,6 +272,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         } else {
           pushLog(logs, "TX failed: " + serialClient.lastError());
         }
+      } else {
+        pushLog(logs, "TX (disconnected): " + describeMessage(message));
       }
     }
 
