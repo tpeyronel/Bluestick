@@ -20,6 +20,9 @@ enum class MappingSourceType {
 
 enum class ActionType {
   ToggleTc,
+  ToggleCc,
+  IncCc,
+  DecCc,
   SetThrottle
 };
 

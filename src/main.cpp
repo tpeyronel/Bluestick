@@ -79,6 +79,12 @@ std::string describeMessage(const Message_t& message) {
       return "SetThrottle=" + std::to_string(message.set_throttle.throttle);
     case MSG_TYPE_TOGGLE_TC:
       return "ToggleTc";
+    case MSG_TYPE_TOGGLE_CC:
+      return "ToggleCc";
+    case MSG_TYPE_INC_CC:
+      return "IncCc";
+    case MSG_TYPE_DEC_CC:
+      return "DecCc";
   }
   return "Unknown";
 }
@@ -415,9 +421,44 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           ImGui::Separator();
           ImGui::Checkbox("Enabled", &binding.enabled);
 
-          int actionIndex = binding.action == bluestick::ActionType::ToggleTc ? 0 : 1;
-          if (ImGui::Combo("Action", &actionIndex, "ToggleTc\0SetThrottle\0")) {
-            binding.action = actionIndex == 0 ? bluestick::ActionType::ToggleTc : bluestick::ActionType::SetThrottle;
+          int actionIndex = 0;
+          switch (binding.action) {
+            case bluestick::ActionType::ToggleTc:
+              actionIndex = 0;
+              break;
+            case bluestick::ActionType::ToggleCc:
+              actionIndex = 1;
+              break;
+            case bluestick::ActionType::IncCc:
+              actionIndex = 2;
+              break;
+            case bluestick::ActionType::DecCc:
+              actionIndex = 3;
+              break;
+            case bluestick::ActionType::SetThrottle:
+              actionIndex = 4;
+              break;
+          }
+          if (ImGui::Combo("Action", &actionIndex, "ToggleTc\0ToggleCc\0IncCc\0DecCc\0SetThrottle\0")) {
+            switch (actionIndex) {
+              case 0:
+                binding.action = bluestick::ActionType::ToggleTc;
+                break;
+              case 1:
+                binding.action = bluestick::ActionType::ToggleCc;
+                break;
+              case 2:
+                binding.action = bluestick::ActionType::IncCc;
+                break;
+              case 3:
+                binding.action = bluestick::ActionType::DecCc;
+                break;
+              case 4:
+                binding.action = bluestick::ActionType::SetThrottle;
+                break;
+              default:
+                break;
+            }
           }
 
           int sourceType = binding.sourceType == bluestick::MappingSourceType::Button ? 0 : 1;
@@ -461,6 +502,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       };
 
       renderActionSection(bluestick::ActionType::ToggleTc);
+      renderActionSection(bluestick::ActionType::ToggleCc);
+      renderActionSection(bluestick::ActionType::IncCc);
+      renderActionSection(bluestick::ActionType::DecCc);
       renderActionSection(bluestick::ActionType::SetThrottle);
 
       mappingEngine.setBindings(bindings);

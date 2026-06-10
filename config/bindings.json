@@ -1,24 +1,64 @@
 {
   "bindings": [
     {
-      "id": 1,
-      "enabled": true,
-      "sourceType": "button",
-      "sourceIndex": 3,
       "action": "toggle_tc",
+      "axisDeltaThreshold": 0.05000000074505806,
+      "axisMinIntervalMs": 50,
       "axisThreshold": 0.5,
-      "axisDeltaThreshold": 0.05,
-      "axisMinIntervalMs": 50
+      "enabled": true,
+      "id": 1,
+      "sourceIndex": 3,
+      "sourceType": "button"
     },
     {
-      "id": 2,
-      "enabled": true,
-      "sourceType": "axis",
-      "sourceIndex": 5,
       "action": "set_throttle",
+      "axisDeltaThreshold": 0.009999999776482582,
+      "axisMinIntervalMs": 5,
       "axisThreshold": 0.5,
-      "axisDeltaThreshold": 0.02,
-      "axisMinIntervalMs": 20
+      "enabled": true,
+      "id": 2,
+      "sourceIndex": 5,
+      "sourceType": "axis"
+    },
+    {
+      "action": "toggle_cc",
+      "axisDeltaThreshold": 0.05000000074505806,
+      "axisMinIntervalMs": 50,
+      "axisThreshold": 0.5,
+      "enabled": true,
+      "id": 3,
+      "sourceIndex": 0,
+      "sourceType": "button"
+    },
+    {
+      "action": "inc_cc",
+      "axisDeltaThreshold": 0.05000000074505806,
+      "axisMinIntervalMs": 50,
+      "axisThreshold": 0.5,
+      "enabled": true,
+      "id": 4,
+      "sourceIndex": 1,
+      "sourceType": "button"
+    },
+    {
+      "action": "dec_cc",
+      "axisDeltaThreshold": 0.05000000074505806,
+      "axisMinIntervalMs": 50,
+      "axisThreshold": 0.5,
+      "enabled": true,
+      "id": 5,
+      "sourceIndex": 2,
+      "sourceType": "button"
+    },
+    {
+      "action": "set_throttle",
+      "axisDeltaThreshold": 0.05000000074505806,
+      "axisMinIntervalMs": 50,
+      "axisThreshold": 0.5,
+      "enabled": true,
+      "id": 6,
+      "sourceIndex": 10,
+      "sourceType": "button"
     }
   ]
 }

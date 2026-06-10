@@ -22,9 +22,29 @@ uint32_t bindingKey(const ActionBinding& binding, size_t index) {
   return binding.id != 0 ? binding.id : static_cast<uint32_t>(index + 1);
 }
 
-Message_t buildToggleMessage() {
+bool isBinaryAction(ActionType action) {
+  return action != ActionType::SetThrottle;
+}
+
+MessageType actionToMessageType(ActionType action) {
+  switch (action) {
+    case ActionType::ToggleTc:
+      return MSG_TYPE_TOGGLE_TC;
+    case ActionType::ToggleCc:
+      return MSG_TYPE_TOGGLE_CC;
+    case ActionType::IncCc:
+      return MSG_TYPE_INC_CC;
+    case ActionType::DecCc:
+      return MSG_TYPE_DEC_CC;
+    case ActionType::SetThrottle:
+      return MSG_TYPE_SET_THROTTLE;
+  }
+  return MSG_TYPE_TOGGLE_TC;
+}
+
+Message_t buildBinaryMessage(ActionType action) {
   Message_t message{};
-  message.toggle_tc.type = MSG_TYPE_TOGGLE_TC;
+  message.type = actionToMessageType(action);
   return message;
 }
 
@@ -68,9 +88,9 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
 
       const size_t idx = static_cast<size_t>(binding.sourceIndex);
       if (previous.buttons[idx] != current.buttons[idx]) {
-        if (binding.action == ActionType::ToggleTc) {
+        if (isBinaryAction(binding.action)) {
           if (current.buttons[idx]) {
-            messages.push_back(buildToggleMessage());
+            messages.push_back(buildBinaryMessage(binding.action));
           }
         } else {
           // Continuous action fed by a button acts as binary analog: released=0.0, pressed=1.0.
@@ -86,7 +106,7 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
 
     const size_t idx = static_cast<size_t>(binding.sourceIndex);
     const float currentValue = current.axes[idx];
-    if (binding.action == ActionType::ToggleTc) {
+    if (isBinaryAction(binding.action)) {
       const bool previousActive = std::fabs(previous.axes[idx]) >= binding.axisThreshold;
       const bool currentActive = std::fabs(currentValue) >= binding.axisThreshold;
       if (!previousActive && currentActive) {
@@ -96,7 +116,7 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
                                 std::chrono::duration_cast<std::chrono::milliseconds>(now - iter->second).count() >=
                                     binding.axisMinIntervalMs;
         if (intervalOk) {
-          messages.push_back(buildToggleMessage());
+          messages.push_back(buildBinaryMessage(binding.action));
           lastAxisSentTimes_[key] = now;
         }
       }
@@ -133,6 +153,12 @@ const char* MappingEngine::actionLabel(ActionType action) {
   switch (action) {
     case ActionType::ToggleTc:
       return "ToggleTc";
+    case ActionType::ToggleCc:
+      return "ToggleCc";
+    case ActionType::IncCc:
+      return "IncCc";
+    case ActionType::DecCc:
+      return "DecCc";
     case ActionType::SetThrottle:
       return "SetThrottle";
   }

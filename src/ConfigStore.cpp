@@ -10,6 +10,15 @@ namespace bluestick {
 namespace {
 
 ActionType parseActionType(const std::string& value) {
+  if (value == "toggle_cc") {
+    return ActionType::ToggleCc;
+  }
+  if (value == "inc_cc") {
+    return ActionType::IncCc;
+  }
+  if (value == "dec_cc") {
+    return ActionType::DecCc;
+  }
   if (value == "set_throttle") {
     return ActionType::SetThrottle;
   }
@@ -20,6 +29,12 @@ const char* actionTypeToString(ActionType type) {
   switch (type) {
     case ActionType::ToggleTc:
       return "toggle_tc";
+    case ActionType::ToggleCc:
+      return "toggle_cc";
+    case ActionType::IncCc:
+      return "inc_cc";
+    case ActionType::DecCc:
+      return "dec_cc";
     case ActionType::SetThrottle:
       return "set_throttle";
   }
