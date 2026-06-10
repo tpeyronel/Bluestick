@@ -10,11 +10,11 @@ namespace bluestick {
 
 class ConfigStore {
 public:
-  static std::optional<std::vector<MappingRule>> loadMappings(const std::string& path,
-                                                              std::string& error);
-  static bool saveMappings(const std::string& path,
-                           const std::vector<MappingRule>& rules,
-                           std::string& error);
+  static std::optional<std::vector<ActionBinding>> loadBindings(const std::string& path,
+                                                                std::string& error);
+  static bool saveBindings(const std::string& path,
+                          const std::vector<ActionBinding>& bindings,
+                          std::string& error);
 };
 
 }  // namespace bluestick

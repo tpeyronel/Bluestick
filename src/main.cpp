@@ -172,7 +172,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   RegisterClassEx(&wc);
   HWND hwnd = CreateWindow(wc.lpszClassName,
-                           _T("Bluestick - Gamepad to Bluetooth Mapper"),
+                           _T("Bluestick - Gamepad to Bluetooth Controller"),
                            WS_OVERLAPPEDWINDOW,
                            100,
                            100,
@@ -213,38 +213,38 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   const std::array<DWORD, 6> baudRates = {9600, 19200, 38400, 57600, 115200, 230400};
 
   bluestick::MappingEngine mappingEngine;
-  std::vector<bluestick::MappingRule> rules;
+  std::vector<bluestick::ActionBinding> bindings;
   {
-    bluestick::MappingRule buttonRule;
-    buttonRule.sourceType = bluestick::MappingSourceType::Button;
-    buttonRule.sourceIndex = static_cast<int>(bluestick::GamepadButton::Y);
-    buttonRule.messageType = bluestick::MappingMessageType::ToggleTc;
-    buttonRule.messageTemplate = "BTN_{source}={value}";
-    rules.push_back(buttonRule);
+    bluestick::ActionBinding toggleButtonBinding;
+    toggleButtonBinding.id = 1;
+    toggleButtonBinding.action = bluestick::ActionType::ToggleTc;
+    toggleButtonBinding.sourceType = bluestick::MappingSourceType::Button;
+    toggleButtonBinding.sourceIndex = static_cast<int>(bluestick::GamepadButton::Y);
+    bindings.push_back(toggleButtonBinding);
 
-    bluestick::MappingRule axisRule;
-    axisRule.sourceType = bluestick::MappingSourceType::Axis;
-    axisRule.sourceIndex = static_cast<int>(bluestick::GamepadAxis::RT);
-    axisRule.messageType = bluestick::MappingMessageType::SetThrottle;
-    axisRule.messageTemplate = "AXIS_{source}={value}";
-    axisRule.axisDeltaThreshold = 0.02f;
-    axisRule.axisMinIntervalMs = 20;
-    rules.push_back(axisRule);
+    bluestick::ActionBinding throttleAxisBinding;
+    throttleAxisBinding.id = 2;
+    throttleAxisBinding.action = bluestick::ActionType::SetThrottle;
+    throttleAxisBinding.sourceType = bluestick::MappingSourceType::Axis;
+    throttleAxisBinding.sourceIndex = static_cast<int>(bluestick::GamepadAxis::RT);
+    throttleAxisBinding.axisDeltaThreshold = 0.02f;
+    throttleAxisBinding.axisMinIntervalMs = 20;
+    bindings.push_back(throttleAxisBinding);
   }
 
   std::deque<std::string> logs;
   pushLog(logs, "Bluestick started.");
 
-  constexpr const char* configPath = "config/mappings.json";
+  constexpr const char* configPath = "config/bindings.json";
   std::string configError;
-  if (auto loaded = bluestick::ConfigStore::loadMappings(configPath, configError)) {
-    rules = *loaded;
-    pushLog(logs, "Loaded mapping config.");
+  if (auto loaded = bluestick::ConfigStore::loadBindings(configPath, configError)) {
+    bindings = *loaded;
+    pushLog(logs, "Loaded binding config.");
   } else {
     pushLog(logs, "Config not loaded: " + configError);
   }
 
-  mappingEngine.setRules(rules);
+  mappingEngine.setBindings(bindings);
 
   bool done = false;
   while (!done) {
@@ -355,29 +355,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       }
     }
 
-    if (ImGui::CollapsingHeader("Mappings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::Button("Add Button Rule")) {
-        bluestick::MappingRule rule;
-        rule.sourceType = bluestick::MappingSourceType::Button;
-        rule.sourceIndex = 0;
-        rule.messageTemplate = "BTN_{source}={value}";
-        rules.push_back(rule);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Add Axis Rule")) {
-        bluestick::MappingRule rule;
-        rule.sourceType = bluestick::MappingSourceType::Axis;
-        rule.sourceIndex = 0;
-        rule.messageTemplate = "AXIS_{source}={value}";
-        rule.axisDeltaThreshold = 0.05f;
-        rule.axisMinIntervalMs = 50;
-        rules.push_back(rule);
-      }
-      ImGui::SameLine();
+    if (ImGui::CollapsingHeader("Bindings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      auto addButtonBinding = [&](bluestick::ActionType action) {
+        bluestick::ActionBinding binding;
+        binding.id = static_cast<uint32_t>(bindings.size() + 1);
+        binding.action = action;
+        binding.sourceType = bluestick::MappingSourceType::Button;
+        binding.sourceIndex = 0;
+        bindings.push_back(binding);
+      };
+
+      auto addAxisBinding = [&](bluestick::ActionType action) {
+        bluestick::ActionBinding binding;
+        binding.id = static_cast<uint32_t>(bindings.size() + 1);
+        binding.action = action;
+        binding.sourceType = bluestick::MappingSourceType::Axis;
+        binding.sourceIndex = 0;
+        bindings.push_back(binding);
+      };
+
       if (ImGui::Button("Save")) {
         std::string error;
-        if (bluestick::ConfigStore::saveMappings(configPath, rules, error)) {
-          pushLog(logs, "Mappings saved.");
+        if (bluestick::ConfigStore::saveBindings(configPath, bindings, error)) {
+          pushLog(logs, "Bindings saved.");
         } else {
           pushLog(logs, "Save failed: " + error);
         }
@@ -385,61 +385,83 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       ImGui::SameLine();
       if (ImGui::Button("Load")) {
         std::string error;
-        if (auto loaded = bluestick::ConfigStore::loadMappings(configPath, error)) {
-          rules = *loaded;
-          pushLog(logs, "Mappings loaded.");
+        if (auto loaded = bluestick::ConfigStore::loadBindings(configPath, error)) {
+          bindings = *loaded;
+          pushLog(logs, "Bindings loaded.");
         } else {
           pushLog(logs, "Load failed: " + error);
         }
       }
 
-      for (size_t i = 0; i < rules.size(); ++i) {
-        auto& rule = rules[i];
-        ImGui::PushID(static_cast<int>(i));
-        ImGui::Separator();
-        ImGui::Checkbox("Enabled", &rule.enabled);
-
-        int sourceType = rule.sourceType == bluestick::MappingSourceType::Button ? 0 : 1;
-        if (ImGui::Combo("Type", &sourceType, "Button\0Axis\0")) {
-          rule.sourceType = sourceType == 0 ? bluestick::MappingSourceType::Button : bluestick::MappingSourceType::Axis;
-          rule.sourceIndex = 0;
+      auto renderActionSection = [&](bluestick::ActionType action) {
+        ImGui::SeparatorText(bluestick::MappingEngine::actionLabel(action));
+        if (ImGui::Button((std::string("Add ") + bluestick::MappingEngine::actionLabel(action) + " Button").c_str())) {
+          addButtonBinding(action);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((std::string("Add ") + bluestick::MappingEngine::actionLabel(action) + " Axis").c_str())) {
+          addAxisBinding(action);
         }
 
-        if (rule.sourceType == bluestick::MappingSourceType::Button) {
-          std::vector<const char*> items;
-          items.reserve(bluestick::ButtonCount);
-          for (int j = 0; j < static_cast<int>(bluestick::ButtonCount); ++j) {
-            items.push_back(bluestick::GamepadInput::buttonName(static_cast<bluestick::GamepadButton>(j)));
+        for (size_t i = 0; i < bindings.size(); ++i) {
+          auto& binding = bindings[i];
+          if (binding.action != action) {
+            continue;
           }
-          ImGui::Combo("Source", &rule.sourceIndex, items.data(), static_cast<int>(items.size()));
-        } else {
-          std::vector<const char*> items;
-          items.reserve(bluestick::AxisCount);
-          for (int j = 0; j < static_cast<int>(bluestick::AxisCount); ++j) {
-            items.push_back(bluestick::GamepadInput::axisName(static_cast<bluestick::GamepadAxis>(j)));
+
+          ImGui::PushID(static_cast<int>(i));
+          ImGui::Separator();
+          ImGui::Checkbox("Enabled", &binding.enabled);
+
+          int actionIndex = binding.action == bluestick::ActionType::ToggleTc ? 0 : 1;
+          if (ImGui::Combo("Action", &actionIndex, "ToggleTc\0SetThrottle\0")) {
+            binding.action = actionIndex == 0 ? bluestick::ActionType::ToggleTc : bluestick::ActionType::SetThrottle;
           }
-          ImGui::Combo("Source", &rule.sourceIndex, items.data(), static_cast<int>(items.size()));
-          ImGui::SliderFloat("Axis Delta", &rule.axisDeltaThreshold, 0.01f, 1.0f, "%.2f");
-          ImGui::SliderInt("Axis Interval (ms)", &rule.axisMinIntervalMs, 5, 1000);
-        }
 
-        char buffer[256] = {};
-        std::snprintf(buffer, sizeof(buffer), "%s", rule.messageTemplate.c_str());
-        if (ImGui::InputText("Message", buffer, sizeof(buffer))) {
-          rule.messageTemplate = buffer;
-        }
+          int sourceType = binding.sourceType == bluestick::MappingSourceType::Button ? 0 : 1;
+          if (ImGui::Combo("Input", &sourceType, "Button\0Axis\0")) {
+            binding.sourceType = sourceType == 0 ? bluestick::MappingSourceType::Button : bluestick::MappingSourceType::Axis;
+            binding.sourceIndex = 0;
+          }
 
-        ImGui::TextDisabled("Tokens: {source}, {value}");
-        if (ImGui::Button("Remove")) {
-          rules.erase(rules.begin() + static_cast<long long>(i));
+          if (binding.sourceType == bluestick::MappingSourceType::Button) {
+            std::vector<const char*> items;
+            items.reserve(bluestick::ButtonCount);
+            for (int j = 0; j < static_cast<int>(bluestick::ButtonCount); ++j) {
+              items.push_back(bluestick::GamepadInput::buttonName(static_cast<bluestick::GamepadButton>(j)));
+            }
+            ImGui::Combo("Source", &binding.sourceIndex, items.data(), static_cast<int>(items.size()));
+          } else {
+            std::vector<const char*> items;
+            items.reserve(bluestick::AxisCount);
+            for (int j = 0; j < static_cast<int>(bluestick::AxisCount); ++j) {
+              items.push_back(bluestick::GamepadInput::axisName(static_cast<bluestick::GamepadAxis>(j)));
+            }
+            ImGui::Combo("Source", &binding.sourceIndex, items.data(), static_cast<int>(items.size()));
+            if (binding.action == bluestick::ActionType::SetThrottle) {
+              ImGui::TextDisabled("Continuous axis input (threshold not used)");
+              ImGui::SliderFloat("Axis Delta", &binding.axisDeltaThreshold, 0.01f, 1.0f, "%.2f");
+              ImGui::SliderInt("Axis Interval (ms)", &binding.axisMinIntervalMs, 5, 1000);
+            } else {
+              ImGui::SliderFloat("Axis Threshold", &binding.axisThreshold, 0.05f, 1.0f, "%.2f");
+              ImGui::SliderInt("Axis Debounce (ms)", &binding.axisMinIntervalMs, 5, 1000);
+            }
+          }
+
+          if (ImGui::Button("Remove")) {
+            bindings.erase(bindings.begin() + static_cast<long long>(i));
+            ImGui::PopID();
+            break;
+          }
+
           ImGui::PopID();
-          break;
         }
+      };
 
-        ImGui::PopID();
-      }
+      renderActionSection(bluestick::ActionType::ToggleTc);
+      renderActionSection(bluestick::ActionType::SetThrottle);
 
-      mappingEngine.setRules(rules);
+      mappingEngine.setBindings(bindings);
     }
 
     if (ImGui::CollapsingHeader("Runtime Log", ImGuiTreeNodeFlags_DefaultOpen)) {

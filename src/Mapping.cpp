@@ -18,28 +18,31 @@ bool isNearZero(float value) {
   return value <= 0.01f;
 }
 
-Message_t buildMessage(const MappingRule& rule, float value) {
+uint32_t bindingKey(const ActionBinding& binding, size_t index) {
+  return binding.id != 0 ? binding.id : static_cast<uint32_t>(index + 1);
+}
+
+Message_t buildToggleMessage() {
   Message_t message{};
-  switch (rule.messageType) {
-    case MappingMessageType::SetThrottle:
-      message.set_throttle.type = MSG_TYPE_SET_THROTTLE;
-      message.set_throttle.throttle = mapThrottle(value);
-      break;
-    case MappingMessageType::ToggleTc:
-      message.toggle_tc.type = MSG_TYPE_TOGGLE_TC;
-      break;
-  }
+  message.toggle_tc.type = MSG_TYPE_TOGGLE_TC;
+  return message;
+}
+
+Message_t buildThrottleMessage(float value) {
+  Message_t message{};
+  message.set_throttle.type = MSG_TYPE_SET_THROTTLE;
+  message.set_throttle.throttle = mapThrottle(value);
   return message;
 }
 
 }  // namespace
 
-void MappingEngine::setRules(const std::vector<MappingRule>& rules) {
-  rules_ = rules;
+void MappingEngine::setBindings(const std::vector<ActionBinding>& bindings) {
+  bindings_ = bindings;
 }
 
-const std::vector<MappingRule>& MappingEngine::rules() const {
-  return rules_;
+const std::vector<ActionBinding>& MappingEngine::bindings() const {
+  return bindings_;
 }
 
 std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
@@ -50,72 +53,102 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
     return messages;
   }
 
-  for (size_t i = 0; i < rules_.size(); ++i) {
-    const MappingRule& rule = rules_[i];
-    if (!rule.enabled) {
+  for (size_t i = 0; i < bindings_.size(); ++i) {
+    const ActionBinding& binding = bindings_[i];
+    if (!binding.enabled) {
       continue;
     }
 
-    if (rule.sourceType == MappingSourceType::Button) {
-      if (rule.sourceIndex < 0 || rule.sourceIndex >= static_cast<int>(ButtonCount)) {
+    const uint32_t key = bindingKey(binding, i);
+
+    if (binding.sourceType == MappingSourceType::Button) {
+      if (binding.sourceIndex < 0 || binding.sourceIndex >= static_cast<int>(ButtonCount)) {
         continue;
       }
 
-      const size_t idx = static_cast<size_t>(rule.sourceIndex);
+      const size_t idx = static_cast<size_t>(binding.sourceIndex);
       if (previous.buttons[idx] != current.buttons[idx]) {
-        if (current.buttons[idx] && rule.messageType == MappingMessageType::ToggleTc) {
-          messages.push_back(buildMessage(rule, 1.0f));
+        if (binding.action == ActionType::ToggleTc) {
+          if (current.buttons[idx]) {
+            messages.push_back(buildToggleMessage());
+          }
+        } else {
+          // Continuous action fed by a button acts as binary analog: released=0.0, pressed=1.0.
+          messages.push_back(buildThrottleMessage(current.buttons[idx] ? 1.0f : 0.0f));
         }
       }
       continue;
     }
 
-    if (rule.sourceIndex < 0 || rule.sourceIndex >= static_cast<int>(AxisCount)) {
+    if (binding.sourceIndex < 0 || binding.sourceIndex >= static_cast<int>(AxisCount)) {
       continue;
     }
 
-    if (rule.messageType != MappingMessageType::SetThrottle) {
-      continue;
-    }
-
-    const size_t idx = static_cast<size_t>(rule.sourceIndex);
+    const size_t idx = static_cast<size_t>(binding.sourceIndex);
     const float currentValue = current.axes[idx];
-    const float previousSentValue = lastAxisSentValues_[idx];
+    if (binding.action == ActionType::ToggleTc) {
+      const bool previousActive = std::fabs(previous.axes[idx]) >= binding.axisThreshold;
+      const bool currentActive = std::fabs(currentValue) >= binding.axisThreshold;
+      if (!previousActive && currentActive) {
+        const auto iter = lastAxisSentTimes_.find(key);
+        const bool hasSentBefore = iter != lastAxisSentTimes_.end();
+        const bool intervalOk = !hasSentBefore ||
+                                std::chrono::duration_cast<std::chrono::milliseconds>(now - iter->second).count() >=
+                                    binding.axisMinIntervalMs;
+        if (intervalOk) {
+          messages.push_back(buildToggleMessage());
+          lastAxisSentTimes_[key] = now;
+        }
+      }
+      continue;
+    }
+
+    const float previousSentValue = lastAxisSentValues_[key];
     const float delta = std::fabs(currentValue - previousSentValue);
 
-    const auto iter = lastAxisSentTimes_.find(static_cast<int>(idx));
+    const auto iter = lastAxisSentTimes_.find(key);
     const bool hasSentBefore = iter != lastAxisSentTimes_.end();
     const bool intervalOk = !hasSentBefore ||
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - iter->second).count() >=
-                                rule.axisMinIntervalMs;
+                                binding.axisMinIntervalMs;
 
     if (isNearZero(currentValue) && previousSentValue > 0.0f) {
-      messages.push_back(buildMessage(rule, 0.0f));
-      lastAxisSentValues_[idx] = 0.0f;
-      lastAxisSentTimes_[static_cast<int>(idx)] = now;
+      messages.push_back(buildThrottleMessage(0.0f));
+      lastAxisSentValues_[key] = 0.0f;
+      lastAxisSentTimes_[key] = now;
       continue;
     }
 
-    if (delta >= rule.axisDeltaThreshold && intervalOk) {
-      messages.push_back(buildMessage(rule, currentValue));
-      lastAxisSentValues_[idx] = currentValue;
-      lastAxisSentTimes_[static_cast<int>(idx)] = now;
+    if (delta >= binding.axisDeltaThreshold && intervalOk) {
+      messages.push_back(buildThrottleMessage(currentValue));
+      lastAxisSentValues_[key] = currentValue;
+      lastAxisSentTimes_[key] = now;
     }
   }
 
   return messages;
 }
 
-std::string MappingEngine::sourceLabel(const MappingRule& rule) {
-  if (rule.sourceType == MappingSourceType::Button) {
-    if (rule.sourceIndex >= 0 && rule.sourceIndex < static_cast<int>(ButtonCount)) {
-      return GamepadInput::buttonName(static_cast<GamepadButton>(rule.sourceIndex));
+const char* MappingEngine::actionLabel(ActionType action) {
+  switch (action) {
+    case ActionType::ToggleTc:
+      return "ToggleTc";
+    case ActionType::SetThrottle:
+      return "SetThrottle";
+  }
+  return "Unknown";
+}
+
+std::string MappingEngine::sourceLabel(const ActionBinding& binding) {
+  if (binding.sourceType == MappingSourceType::Button) {
+    if (binding.sourceIndex >= 0 && binding.sourceIndex < static_cast<int>(ButtonCount)) {
+      return GamepadInput::buttonName(static_cast<GamepadButton>(binding.sourceIndex));
     }
     return "InvalidButton";
   }
 
-  if (rule.sourceIndex >= 0 && rule.sourceIndex < static_cast<int>(AxisCount)) {
-    return GamepadInput::axisName(static_cast<GamepadAxis>(rule.sourceIndex));
+  if (binding.sourceIndex >= 0 && binding.sourceIndex < static_cast<int>(AxisCount)) {
+    return GamepadInput::axisName(static_cast<GamepadAxis>(binding.sourceIndex));
   }
 
   return "InvalidAxis";

@@ -9,31 +9,27 @@ namespace bluestick {
 
 namespace {
 
-MappingMessageType parseMessageType(const std::string& value, MappingSourceType sourceType) {
+ActionType parseActionType(const std::string& value) {
   if (value == "set_throttle") {
-    return MappingMessageType::SetThrottle;
+    return ActionType::SetThrottle;
   }
-  if (value == "toggle_tc") {
-    return MappingMessageType::ToggleTc;
-  }
-  return sourceType == MappingSourceType::Axis ? MappingMessageType::SetThrottle :
-                                                 MappingMessageType::ToggleTc;
+  return ActionType::ToggleTc;
 }
 
-const char* messageTypeToString(MappingMessageType type) {
+const char* actionTypeToString(ActionType type) {
   switch (type) {
-    case MappingMessageType::SetThrottle:
-      return "set_throttle";
-    case MappingMessageType::ToggleTc:
+    case ActionType::ToggleTc:
       return "toggle_tc";
+    case ActionType::SetThrottle:
+      return "set_throttle";
   }
   return "toggle_tc";
 }
 
 }  // namespace
 
-std::optional<std::vector<MappingRule>> ConfigStore::loadMappings(const std::string& path,
-                                                                   std::string& error) {
+std::optional<std::vector<ActionBinding>> ConfigStore::loadBindings(const std::string& path,
+                                                                    std::string& error) {
   error.clear();
   std::ifstream file(path);
   if (!file.is_open()) {
@@ -49,48 +45,50 @@ std::optional<std::vector<MappingRule>> ConfigStore::loadMappings(const std::str
     return std::nullopt;
   }
 
-  if (!root.contains("mappings") || !root["mappings"].is_array()) {
-    error = "Invalid config: missing mappings array";
+  if (!root.contains("bindings") || !root["bindings"].is_array()) {
+    error = "Invalid config: missing bindings array";
     return std::nullopt;
   }
 
-  std::vector<MappingRule> rules;
-  for (const auto& item : root["mappings"]) {
-    MappingRule rule;
-    rule.enabled = item.value("enabled", true);
+  std::vector<ActionBinding> bindings;
+  for (const auto& item : root["bindings"]) {
+    ActionBinding binding;
+    binding.id = item.value("id", 0u);
+    binding.enabled = item.value("enabled", true);
 
     const std::string sourceType = item.value("sourceType", "button");
-    rule.sourceType = (sourceType == "axis") ? MappingSourceType::Axis : MappingSourceType::Button;
+    binding.sourceType = (sourceType == "axis") ? MappingSourceType::Axis : MappingSourceType::Button;
 
-    rule.sourceIndex = item.value("sourceIndex", 0);
-    rule.messageTemplate = item.value("messageTemplate", "{source}:{value}");
-    rule.messageType = parseMessageType(item.value("messageType", ""), rule.sourceType);
-    rule.axisDeltaThreshold = item.value("axisDeltaThreshold", 0.05f);
-    rule.axisMinIntervalMs = item.value("axisMinIntervalMs", 50);
+    binding.sourceIndex = item.value("sourceIndex", 0);
+    binding.action = parseActionType(item.value("action", "toggle_tc"));
+    binding.axisThreshold = item.value("axisThreshold", 0.5f);
+    binding.axisDeltaThreshold = item.value("axisDeltaThreshold", 0.05f);
+    binding.axisMinIntervalMs = item.value("axisMinIntervalMs", 50);
 
-    rules.push_back(rule);
+    bindings.push_back(binding);
   }
 
-  return rules;
+  return bindings;
 }
 
-bool ConfigStore::saveMappings(const std::string& path,
-                               const std::vector<MappingRule>& rules,
-                               std::string& error) {
+bool ConfigStore::saveBindings(const std::string& path,
+                              const std::vector<ActionBinding>& bindings,
+                              std::string& error) {
   error.clear();
 
   nlohmann::json root;
-  root["mappings"] = nlohmann::json::array();
+  root["bindings"] = nlohmann::json::array();
 
-  for (const MappingRule& rule : rules) {
-    root["mappings"].push_back({
-        {"enabled", rule.enabled},
-        {"sourceType", rule.sourceType == MappingSourceType::Axis ? "axis" : "button"},
-        {"sourceIndex", rule.sourceIndex},
-      {"messageType", messageTypeToString(rule.messageType)},
-        {"messageTemplate", rule.messageTemplate},
-        {"axisDeltaThreshold", rule.axisDeltaThreshold},
-        {"axisMinIntervalMs", rule.axisMinIntervalMs},
+  for (const ActionBinding& binding : bindings) {
+    root["bindings"].push_back({
+        {"id", binding.id},
+        {"enabled", binding.enabled},
+        {"sourceType", binding.sourceType == MappingSourceType::Axis ? "axis" : "button"},
+        {"sourceIndex", binding.sourceIndex},
+        {"action", actionTypeToString(binding.action)},
+        {"axisThreshold", binding.axisThreshold},
+        {"axisDeltaThreshold", binding.axisDeltaThreshold},
+        {"axisMinIntervalMs", binding.axisMinIntervalMs},
     });
   }
 

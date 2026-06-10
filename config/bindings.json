@@ -1,20 +1,22 @@
 {
-  "mappings": [
+  "bindings": [
     {
+      "id": 1,
       "enabled": true,
       "sourceType": "button",
       "sourceIndex": 3,
-      "messageType": "toggle_tc",
-      "messageTemplate": "BTN_{source}={value}",
+      "action": "toggle_tc",
+      "axisThreshold": 0.5,
       "axisDeltaThreshold": 0.05,
       "axisMinIntervalMs": 50
     },
     {
+      "id": 2,
       "enabled": true,
       "sourceType": "axis",
       "sourceIndex": 5,
-      "messageType": "set_throttle",
-      "messageTemplate": "AXIS_{source}={value}",
+      "action": "set_throttle",
+      "axisThreshold": 0.5,
       "axisDeltaThreshold": 0.02,
       "axisMinIntervalMs": 20
     }
