@@ -226,6 +226,18 @@ bool BluetoothSerialClient::sendBytes(const void* data, size_t size) {
   return true;
 }
 
+int BluetoothSerialClient::readBytes(void* buf, size_t size) {
+  if (!isConnected()) {
+    return -1;
+  }
+  DWORD read = 0;
+  if (!ReadFile(serialHandle_, buf, static_cast<DWORD>(size), &read, nullptr)) {
+    setError("ReadFile failed");
+    return -1;
+  }
+  return static_cast<int>(read);
+}
+
 bool BluetoothSerialClient::isConnected() const {
   return serialHandle_ != INVALID_HANDLE_VALUE;
 }

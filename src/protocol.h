@@ -50,6 +50,30 @@ typedef union PACKED Message_t {
 
 constexpr size_t MESSAGE_SIZE = sizeof(Message_t);
 
+// ---- Incoming messages (device → PC) ----
+
+enum MessageOutType : uint8_t {
+    MSG_OUT_TYPE_LOG = 0,
+};
+
+struct PACKED MessageOutLog {
+    MessageOutType type;
+    uint8_t throttle;
+    uint8_t rear_left_pwm;
+    uint8_t rear_right_pwm;
+    uint8_t rear_left_slip;
+    uint8_t rear_right_slip;
+};
+
+constexpr size_t MESSAGE_OUT_LOG_SIZE = sizeof(MessageOutLog);
+
+typedef union PACKED MessageOut_t {
+    MessageOutType type;
+    MessageOutLog log;
+} MessageOut_t;
+
+constexpr size_t MESSAGE_OUT_SIZE = sizeof(MessageOut_t);
+
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif

@@ -19,7 +19,13 @@ FetchContent_Declare(
   GIT_TAG v3.11.3
 )
 
-FetchContent_MakeAvailable(imgui nlohmann_json)
+FetchContent_Declare(
+  implot
+  GIT_REPOSITORY https://github.com/epezent/implot.git
+  GIT_TAG v0.16
+)
+
+FetchContent_MakeAvailable(imgui nlohmann_json implot)
 
 add_library(imgui_lib STATIC
   ${imgui_SOURCE_DIR}/imgui.cpp
@@ -29,11 +35,14 @@ add_library(imgui_lib STATIC
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
+  ${implot_SOURCE_DIR}/implot.cpp
+  ${implot_SOURCE_DIR}/implot_items.cpp
 )
 
 target_include_directories(imgui_lib PUBLIC
   ${imgui_SOURCE_DIR}
   ${imgui_SOURCE_DIR}/backends
+  ${implot_SOURCE_DIR}
 )
 
 target_compile_definitions(imgui_lib PRIVATE UNICODE _UNICODE)
@@ -44,6 +53,7 @@ add_executable(bluestick WIN32
   src/BluetoothSerial.cpp
   src/Mapping.cpp
   src/ConfigStore.cpp
+  src/MessageReader.cpp
 )
 
 target_include_directories(bluestick PRIVATE include src)

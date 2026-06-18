@@ -4,6 +4,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <deque>
 #include <string>
@@ -12,11 +13,13 @@
 #include "imgui.h"
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
+#include "implot.h"
 
 #include "bluestick/BluetoothSerial.hpp"
 #include "bluestick/ConfigStore.hpp"
 #include "bluestick/GamepadInput.hpp"
 #include "bluestick/Mapping.hpp"
+#include "bluestick/MessageReader.hpp"
 
 #pragma comment(lib, "d3d11.lib")
 
@@ -207,6 +210,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   ImGui_ImplWin32_Init(hwnd);
   ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+  ImPlot::CreateContext();
 
   bluestick::GamepadInput gamepad;
   bluestick::InputSnapshot previousSnapshot;
@@ -217,6 +221,34 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   int selectedDevice = serialDevices.empty() ? -1 : 0;
   int selectedBaud = 3;
   const std::array<DWORD, 6> baudRates = {9600, 19200, 38400, 57600, 115200, 230400};
+
+  bluestick::MessageReader messageReader;
+
+  // Oscilloscope state
+  enum class OscViewMode { Scrolling, Circular };
+  OscViewMode oscViewMode = OscViewMode::Scrolling;
+  bool oscPaused = false;
+  float oscWindowSec = 10.0f;   // horizontal span visible
+  int   oscViewModeIdx = 0;
+
+  struct ChannelCfg {
+      const char* label;
+      bool visible;
+      ImVec4 color;
+      float yScale;  // multiplier applied before plotting (zoom per-channel)
+  };
+  // Default distinct colors per channel
+  std::array<ChannelCfg, 5> channels = {{
+      {"Throttle",       true, {0.20f, 0.80f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left PWM",  true, {0.20f, 0.60f, 1.00f, 1.0f}, 1.0f},
+      {"Rear Right PWM", true, {1.00f, 0.40f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left Slip", true, {1.00f, 0.80f, 0.10f, 1.0f}, 1.0f},
+      {"Rear Right Slip",true, {0.90f, 0.20f, 0.80f, 1.0f}, 1.0f},
+  }};
+
+  // Snapshot vectors updated each frame from the ring buffer
+  std::vector<float> snapTs;
+  std::vector<float> snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip;
 
   bluestick::MappingEngine mappingEngine;
   std::vector<bluestick::ActionBinding> bindings;
@@ -342,6 +374,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           const auto& target = serialDevices[static_cast<size_t>(selectedDevice)];
           if (serialClient.connect(target.port, baudRates[static_cast<size_t>(selectedBaud)])) {
             pushLog(logs, "Connected to " + target.port);
+            messageReader.start(serialClient.handle());
           } else {
             pushLog(logs, "Connect failed: " + serialClient.lastError());
           }
@@ -350,6 +383,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         ImGui::Text("Connected port: %s", serialClient.currentPort().c_str());
         ImGui::SameLine();
         if (ImGui::Button("Disconnect")) {
+          messageReader.stop();
           serialClient.disconnect();
           pushLog(logs, "Disconnected.");
         }
@@ -518,6 +552,150 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     ImGui::End();
 
+    // ---- Oscilloscope window ----
+    ImGui::SetNextWindowSize(ImVec2(900, 500), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Oscilloscope");
+
+    // Snapshot ring buffer once per frame (only when not paused)
+    if (!oscPaused) {
+      messageReader.buffer().snapshot(snapTs, snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip);
+    }
+
+    // Controls row
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("View:");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scrolling",  oscViewModeIdx == 0)) { oscViewModeIdx = 0; oscViewMode = OscViewMode::Scrolling; }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Circular",   oscViewModeIdx == 1)) { oscViewModeIdx = 1; oscViewMode = OscViewMode::Circular; }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(120.0f);
+    ImGui::SliderFloat("Window (s)", &oscWindowSec, 1.0f, 30.0f, "%.0f s");
+    ImGui::SameLine();
+    if (ImGui::Button(oscPaused ? "Resume" : "Pause")) {
+      oscPaused = !oscPaused;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear")) {
+      messageReader.buffer().clear();
+      snapTs.clear();
+      snapThrottle.clear(); snapRLPwm.clear(); snapRRPwm.clear();
+      snapRLSlip.clear();   snapRRSlip.clear();
+    }
+
+    // Channel visibility + color + scale row
+    ImGui::Separator();
+    for (auto& ch : channels) {
+      ImGui::Checkbox(ch.label, &ch.visible);
+      ImGui::SameLine();
+      ImGui::ColorEdit4(
+          (std::string("##col_") + ch.label).c_str(),
+          reinterpret_cast<float*>(&ch.color),
+          ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(60.0f);
+      ImGui::SliderFloat(
+          (std::string("##yscale_") + ch.label).c_str(),
+          &ch.yScale, 0.1f, 5.0f, "x%.1f");
+      ImGui::SameLine();
+      ImGui::TextDisabled("|  ");
+    }
+    ImGui::NewLine();
+
+    // Determine x-axis bounds
+    const float nowMs = snapTs.empty() ? 0.0f : snapTs.back();
+    const float xWindowMs = oscWindowSec * 1000.0f;
+
+    float xMin = 0.0f, xMax = xWindowMs;
+    if (oscViewMode == OscViewMode::Scrolling) {
+      xMax = std::max(nowMs, xWindowMs);
+      xMin = xMax - xWindowMs;
+    } else {
+      xMin = 0.0f;
+      xMax = xWindowMs;
+    }
+
+    const ImVec2 plotSize(-1, -1);  // fill remaining space
+    if (ImPlot::BeginPlot("##osc", plotSize)) {
+      ImPlot::SetupAxes("Time (ms)", "Value (0-1)");
+      ImPlot::SetupAxisLimits(ImAxis_X1, static_cast<double>(xMin), static_cast<double>(xMax), ImGuiCond_Always);
+      ImPlot::SetupAxisLimits(ImAxis_Y1, -0.05, 1.05, ImGuiCond_Once);
+
+      const size_t n = snapTs.size();
+
+      // Helper lambda: build a scaled copy of a float channel and plot it.
+      auto plotChannel = [&](int chIdx,
+                              const std::vector<float>& ys,
+                              const char* id) {
+        if (!channels[chIdx].visible || n == 0) return;
+
+        ImPlot::SetNextLineStyle(channels[chIdx].color, 1.5f);
+
+        if (oscViewMode == OscViewMode::Scrolling) {
+          // For scrolling we can plot directly — just scale y values.
+          // Build a scaled copy only when yScale != 1.
+          if (channels[chIdx].yScale == 1.0f) {
+            ImPlot::PlotLine(id,
+                snapTs.data(), ys.data(),
+                static_cast<int>(n));
+          } else {
+            std::vector<float> scaled(n);
+            const float s = channels[chIdx].yScale;
+            for (size_t i = 0; i < n; ++i) scaled[i] = ys[i] * s;
+            ImPlot::PlotLine(id,
+                snapTs.data(), scaled.data(),
+                static_cast<int>(n));
+          }
+        } else {
+          // Circular view: map timestamps into [0, windowMs) by modulo,
+          // then use ImPlot's shaded line from the write position.
+          // We compute per-sample x = fmod(ts, xWindowMs) and plot in
+          // two segments (before and after the write pointer).
+          const float writePos = std::fmod(nowMs, xWindowMs);
+
+          std::vector<float> xs(n);
+          std::vector<float> yscaled(n);
+          const float s = channels[chIdx].yScale;
+          for (size_t i = 0; i < n; ++i) {
+            xs[i]      = std::fmod(snapTs[i], xWindowMs);
+            yscaled[i] = ys[i] * s;
+          }
+
+          size_t split = 0;
+          for (size_t i = 0; i < n; ++i) {
+            if (xs[i] <= writePos) split = i + 1;
+          }
+
+          if (split > 0) {
+            ImPlot::PlotLine(id,
+                xs.data(), yscaled.data(),
+                static_cast<int>(split));
+          }
+          if (split < n) {
+            ImPlot::PlotLine(id,
+                xs.data() + split, yscaled.data() + split,
+                static_cast<int>(n - split));
+          }
+
+          // Draw the write-pointer as a vertical line
+          ImPlot::SetNextLineStyle(ImVec4(0.5f, 0.5f, 0.5f, 0.4f), 1.0f);
+          const float vxs[2] = {writePos, writePos};
+          const float vys[2] = {-0.1f, 1.1f};
+          ImPlot::PlotLine("##ptr", vxs, vys, 2);
+        }
+      };
+
+      plotChannel(0, snapThrottle, channels[0].label);
+      plotChannel(1, snapRLPwm,    channels[1].label);
+      plotChannel(2, snapRRPwm,    channels[2].label);
+      plotChannel(3, snapRLSlip,   channels[3].label);
+      plotChannel(4, snapRRSlip,   channels[4].label);
+
+      ImPlot::EndPlot();
+    }
+
+    ImGui::End();
+
     ImGui::Render();
     const float clearColor[4] = {0.08f, 0.10f, 0.12f, 1.00f};
     g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
@@ -527,8 +705,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     g_pSwapChain->Present(1, 0);
   }
 
+  messageReader.stop();
+
   ImGui_ImplDX11_Shutdown();
   ImGui_ImplWin32_Shutdown();
+  ImPlot::DestroyContext();
   ImGui::DestroyContext();
 
   CleanupDeviceD3D();

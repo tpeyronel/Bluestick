@@ -28,10 +28,13 @@ public:
   void disconnect();
   bool sendLine(const std::string& message);
   bool sendBytes(const void* data, size_t size);
+  // Blocking read with timeout; returns number of bytes actually read (0 on timeout, -1 on error).
+  int readBytes(void* buf, size_t size);
 
   bool isConnected() const;
   std::string currentPort() const;
   std::string lastError() const;
+  HANDLE handle() const { return serialHandle_; }
 
 private:
   HANDLE serialHandle_ = INVALID_HANDLE_VALUE;
