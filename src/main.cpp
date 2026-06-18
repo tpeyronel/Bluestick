@@ -2,6 +2,7 @@
 #include <tchar.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -249,6 +250,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   // Snapshot vectors updated each frame from the ring buffer
   std::vector<float> snapTs;
   std::vector<float> snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip;
+
+  // Dummy data generator state
+  bool dummyActive = false;
+  std::chrono::steady_clock::time_point dummyEpoch;
+  std::chrono::steady_clock::time_point dummyLastPush;
+  constexpr float kDummySampleIntervalMs = 50.0f;  // 20 Hz
 
   bluestick::MappingEngine mappingEngine;
   std::vector<bluestick::ActionBinding> bindings;
@@ -552,6 +559,28 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     ImGui::End();
 
+    // ---- Dummy data generator ----
+    if (dummyActive) {
+      const auto now = std::chrono::steady_clock::now();
+      const float intervalMs = kDummySampleIntervalMs;
+      while (std::chrono::duration<float, std::milli>(now - dummyLastPush).count() >= intervalMs) {
+        dummyLastPush += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<float, std::milli>(intervalMs));
+
+        const float tMs = std::chrono::duration<float, std::milli>(dummyLastPush - dummyEpoch).count();
+        const float t   = tMs / 1000.0f;
+
+        bluestick::LogSample s{};
+        s.timestampMs    = tMs;
+        s.throttle       = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.20f * t);
+        s.rear_left_pwm  = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t + 1.0f);
+        s.rear_right_pwm = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t - 1.0f);
+        s.rear_left_slip = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t + 2.0f);
+        s.rear_right_slip= 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t - 2.0f);
+        messageReader.buffer().push(s);
+      }
+    }
+
     // ---- Oscilloscope window ----
     ImGui::SetNextWindowSize(ImVec2(900, 500), ImGuiCond_FirstUseEver);
     ImGui::Begin("Oscilloscope");
@@ -575,6 +604,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     if (ImGui::Button(oscPaused ? "Resume" : "Pause")) {
       oscPaused = !oscPaused;
     }
+    ImGui::SameLine();
+    const bool dummyWasActive = dummyActive;
+    if (dummyWasActive) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
+    if (ImGui::Button(dummyWasActive ? "Stop Dummy" : "Dummy Data")) {
+      dummyActive = !dummyActive;
+      if (dummyActive) {
+        messageReader.buffer().clear();
+        dummyEpoch    = std::chrono::steady_clock::now();
+        dummyLastPush = dummyEpoch;
+      }
+    }
+    if (dummyWasActive) ImGui::PopStyleColor();
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
       messageReader.buffer().clear();
@@ -647,41 +688,61 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                 static_cast<int>(n));
           }
         } else {
-          // Circular view: map timestamps into [0, windowMs) by modulo,
-          // then use ImPlot's shaded line from the write position.
-          // We compute per-sample x = fmod(ts, xWindowMs) and plot in
-          // two segments (before and after the write pointer).
-          const float writePos = std::fmod(nowMs, xWindowMs);
-
-          std::vector<float> xs(n);
-          std::vector<float> yscaled(n);
-          const float s = channels[chIdx].yScale;
+          // Circular view: only show the most recent xWindowMs of data.
+          // Map x = fmod(ts, xWindowMs). Within one window there is at most
+          // one wrap-around; detect it as the point where x decreases and
+          // plot two separate segments so ImPlot never draws the diagonal line.
+          const float cutoff = nowMs - xWindowMs;
+          size_t startIdx = n;
           for (size_t i = 0; i < n; ++i) {
-            xs[i]      = std::fmod(snapTs[i], xWindowMs);
-            yscaled[i] = ys[i] * s;
+            if (snapTs[i] >= cutoff) { startIdx = i; break; }
           }
+          const size_t visN = (startIdx < n) ? (n - startIdx) : 0;
 
-          size_t split = 0;
-          for (size_t i = 0; i < n; ++i) {
-            if (xs[i] <= writePos) split = i + 1;
-          }
+          if (visN > 1) {
+            std::vector<float> xs(visN);
+            std::vector<float> yscaled(visN);
+            const float s = channels[chIdx].yScale;
+            for (size_t i = 0; i < visN; ++i) {
+              xs[i]      = std::fmod(snapTs[startIdx + i], xWindowMs);
+              yscaled[i] = ys[startIdx + i] * s;
+            }
 
-          if (split > 0) {
-            ImPlot::PlotLine(id,
-                xs.data(), yscaled.data(),
-                static_cast<int>(split));
-          }
-          if (split < n) {
-            ImPlot::PlotLine(id,
-                xs.data() + split, yscaled.data() + split,
-                static_cast<int>(n - split));
-          }
+            // Find the single wrap point where x decreases
+            size_t wrapIdx = visN;
+            for (size_t i = 1; i < visN; ++i) {
+              if (xs[i] < xs[i - 1]) { wrapIdx = i; break; }
+            }
 
-          // Draw the write-pointer as a vertical line
-          ImPlot::SetNextLineStyle(ImVec4(0.5f, 0.5f, 0.5f, 0.4f), 1.0f);
-          const float vxs[2] = {writePos, writePos};
-          const float vys[2] = {-0.1f, 1.1f};
-          ImPlot::PlotLine("##ptr", vxs, vys, 2);
+            // Plot each contiguous run with a fade effect.
+            // Subdivide into small overlapping segments; each segment's alpha
+            // is proportional to how recent its midpoint is:
+            //   alpha = (ts - cutoff) / xWindowMs  → 0 near the write pointer, 1 at "now"
+            const ImVec4 baseColor = channels[chIdx].color;
+            // Fade only the last 10% of the window (aggressive, short fade zone).
+            const float fadeZoneMs = 0.10f * xWindowMs;
+            auto plotFadedRun = [&](size_t from, size_t to) {
+              if (to <= from + 1) return;
+              const size_t runLen = to - from;
+              const size_t kStep  = std::max(size_t(2), runLen / 32);
+              for (size_t i = from; i + 1 < to; i += kStep - 1) {
+                const size_t end   = std::min(i + kStep, to);
+                const size_t mid   = (i + end) / 2;
+                const float  alpha = std::clamp(
+                    (snapTs[startIdx + mid] - cutoff) / fadeZoneMs, 0.0f, 1.0f);
+                ImVec4 col = baseColor;
+                col.w     *= alpha;
+                ImPlot::SetNextLineStyle(col, 1.5f);
+                ImPlot::PlotLine(id,
+                    xs.data()      + i,
+                    yscaled.data() + i,
+                    static_cast<int>(end - i));
+              }
+            };
+
+            plotFadedRun(0, wrapIdx);
+            plotFadedRun(wrapIdx, visN);
+          }
         }
       };
 
@@ -690,6 +751,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       plotChannel(2, snapRRPwm,    channels[2].label);
       plotChannel(3, snapRLSlip,   channels[3].label);
       plotChannel(4, snapRRSlip,   channels[4].label);
+
+      // Write-pointer line drawn once, outside the per-channel lambda
+      if (oscViewMode == OscViewMode::Circular && !snapTs.empty()) {
+        const float writePos = std::fmod(nowMs, xWindowMs);
+        ImPlot::SetNextLineStyle(ImVec4(0.5f, 0.5f, 0.5f, 0.4f), 1.0f);
+        const float vxs[2] = {writePos, writePos};
+        const float vys[2] = {-0.1f, 1.1f};
+        ImPlot::PlotLine("##ptr", vxs, vys, 2);
+      }
 
       ImPlot::EndPlot();
     }
