@@ -291,6 +291,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   mappingEngine.setBindings(bindings);
 
+  bool  manualThrottleEnabled = false;
+  bool  prevManualThrottleEnabled = false;
+  float manualThrottle = 0.0f;
+  bool  manualThrottleChanged = false;
+
   bool done = false;
   while (!done) {
     MSG msg;
@@ -308,8 +313,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     previousSnapshot = currentSnapshot;
     currentSnapshot = gamepad.poll();
 
-    const auto messages =
+    auto messages =
         mappingEngine.evaluate(previousSnapshot, currentSnapshot, std::chrono::steady_clock::now());
+
+    if (manualThrottleEnabled) {
+      messages.erase(std::remove_if(messages.begin(), messages.end(),
+          [](const Message_t& m){ return m.type == MSG_TYPE_SET_THROTTLE; }),
+          messages.end());
+    }
+
     for (const auto& message : messages) {
       if (serialClient.isConnected()) {
         if (serialClient.sendBytes(&message, MESSAGE_SIZE)) {
@@ -321,6 +333,35 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         pushLog(logs, "TX (disconnected): " + describeMessage(message));
       }
     }
+
+    // Send manual throttle message when slider was moved
+    if (manualThrottleEnabled && manualThrottleChanged) {
+      Message_t manualMsg{};
+      manualMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
+      manualMsg.set_throttle.throttle = static_cast<uint8_t>(std::clamp(manualThrottle, 0.0f, 1.0f) * 255.0f);
+      if (serialClient.isConnected()) {
+        if (serialClient.sendBytes(&manualMsg, MESSAGE_SIZE)) {
+          pushLog(logs, "TX: " + describeMessage(manualMsg));
+        } else {
+          pushLog(logs, "TX failed: " + serialClient.lastError());
+        }
+      } else {
+        pushLog(logs, "TX (disconnected): " + describeMessage(manualMsg));
+      }
+    }
+
+    // Send zero throttle when manual mode is turned off
+    if (prevManualThrottleEnabled && !manualThrottleEnabled) {
+      Message_t zeroMsg{};
+      zeroMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
+      zeroMsg.set_throttle.throttle = 0;
+      if (serialClient.isConnected()) {
+        serialClient.sendBytes(&zeroMsg, MESSAGE_SIZE);
+        pushLog(logs, "TX: manual throttle off → " + describeMessage(zeroMsg));
+      }
+    }
+    prevManualThrottleEnabled = manualThrottleEnabled;
+    manualThrottleChanged = false;
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -348,6 +389,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
                       value);
         }
       }
+    }
+
+    if (ImGui::CollapsingHeader("Manual Controls")) {
+      ImGui::Checkbox("Enable manual throttle", &manualThrottleEnabled);
+      if (!manualThrottleEnabled) ImGui::BeginDisabled();
+      manualThrottleChanged = ImGui::SliderFloat("Throttle##manual", &manualThrottle, 0.0f, 1.0f, "%.2f");
+      if (!manualThrottleEnabled) ImGui::EndDisabled();
     }
 
     if (ImGui::CollapsingHeader("Bluetooth Serial", ImGuiTreeNodeFlags_DefaultOpen)) {
