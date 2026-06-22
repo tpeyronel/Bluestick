@@ -298,6 +298,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   float manualThrottle = 0.0f;
   bool  manualThrottleChanged = false;
 
+  struct MotorPidState {
+      float Kp = 0.0f;
+      float Ki = 0.0f;
+      float Kd = 0.0f;
+  };
+  std::array<MotorPidState, 2> motorPid{};
+
   bool done = false;
   while (!done) {
     MSG msg;
@@ -398,6 +405,44 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       if (!manualThrottleEnabled) ImGui::BeginDisabled();
       manualThrottleChanged = ImGui::SliderFloat("Throttle##manual", &manualThrottle, 0.0f, 1.0f, "%.2f");
       if (!manualThrottleEnabled) ImGui::EndDisabled();
+    }
+
+    if (ImGui::CollapsingHeader("Motor PID Tuning")) {
+      auto sendPid = [&](uint8_t motorId) {
+        MessageSetMotorPidConfig msg{};
+        msg.type     = MSG_TYPE_SET_MOTOR_PID_CONFIG;
+        msg.motor_id = motorId;
+        msg.Kp       = motorPid[motorId].Kp;
+        msg.Ki       = motorPid[motorId].Ki;
+        msg.Kd       = motorPid[motorId].Kd;
+        if (serialClient.isConnected()) {
+          if (serialClient.sendBytes(&msg, sizeof(msg))) {
+            pushLog(logs, "TX: SetMotorPidConfig motor=" + std::to_string(motorId) +
+                " Kp=" + std::to_string(msg.Kp) +
+                " Ki=" + std::to_string(msg.Ki) +
+                " Kd=" + std::to_string(msg.Kd));
+          } else {
+            pushLog(logs, "TX failed: " + serialClient.lastError());
+          }
+        } else {
+          pushLog(logs, "TX (disconnected): SetMotorPidConfig motor=" + std::to_string(motorId));
+        }
+      };
+
+      for (uint8_t i = 0; i < 2; ++i) {
+        ImGui::PushID(i);
+        ImGui::SeparatorText(i == 0 ? "Motor 0 (Left)" : "Motor 1 (Right)");
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SliderFloat("Kp##pid", &motorPid[i].Kp, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SliderFloat("Ki##pid", &motorPid[i].Ki, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::SliderFloat("Kd##pid", &motorPid[i].Kd, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+        if (ImGui::Button("Send##pid")) {
+          sendPid(i);
+        }
+        ImGui::PopID();
+      }
     }
 
     if (ImGui::CollapsingHeader("Bluetooth Serial", ImGuiTreeNodeFlags_DefaultOpen)) {
