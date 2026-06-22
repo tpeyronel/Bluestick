@@ -36,7 +36,9 @@ size_t LogRingBuffer::snapshot(std::vector<float>& timestamps,
                                std::vector<float>& rear_left_pwm,
                                std::vector<float>& rear_right_pwm,
                                std::vector<float>& rear_left_slip,
-                               std::vector<float>& rear_right_slip) const {
+                               std::vector<float>& rear_right_slip,
+                               std::vector<float>& rear_left_rps_ratio,
+                               std::vector<float>& rear_right_rps_ratio) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     timestamps.resize(count_);
@@ -45,18 +47,22 @@ size_t LogRingBuffer::snapshot(std::vector<float>& timestamps,
     rear_right_pwm.resize(count_);
     rear_left_slip.resize(count_);
     rear_right_slip.resize(count_);
+    rear_left_rps_ratio.resize(count_);
+    rear_right_rps_ratio.resize(count_);
 
     // Oldest sample is at (head_ - count_ + capacity_) % capacity_
     const size_t oldest = (head_ + capacity_ - count_) % capacity_;
     for (size_t i = 0; i < count_; ++i) {
         const size_t idx = (oldest + i) % capacity_;
         const auto& s = buf_[idx];
-        timestamps[i]     = static_cast<float>(s.timestampMs);
-        throttle[i]       = s.throttle;
-        rear_left_pwm[i]  = s.rear_left_pwm;
-        rear_right_pwm[i] = s.rear_right_pwm;
-        rear_left_slip[i] = s.rear_left_slip;
-        rear_right_slip[i]= s.rear_right_slip;
+        timestamps[i]          = static_cast<float>(s.timestampMs);
+        throttle[i]            = s.throttle;
+        rear_left_pwm[i]       = s.rear_left_pwm;
+        rear_right_pwm[i]      = s.rear_right_pwm;
+        rear_left_slip[i]      = s.rear_left_slip;
+        rear_right_slip[i]     = s.rear_right_slip;
+        rear_left_rps_ratio[i] = s.rear_left_rps_ratio;
+        rear_right_rps_ratio[i]= s.rear_right_rps_ratio;
     }
 
     return count_;
@@ -151,8 +157,10 @@ void MessageReader::readerLoop(HANDLE h) {
                     sample.throttle       = msg.throttle       / 255.0f;
                     sample.rear_left_pwm  = msg.rear_left_pwm  / 255.0f;
                     sample.rear_right_pwm = msg.rear_right_pwm / 255.0f;
-                    sample.rear_left_slip = msg.rear_left_slip / 255.0f;
-                    sample.rear_right_slip= msg.rear_right_slip/ 255.0f;
+                    sample.rear_left_slip        = msg.rear_left_slip        / 255.0f;
+                    sample.rear_right_slip       = msg.rear_right_slip       / 255.0f;
+                    sample.rear_left_rps_ratio   = msg.rear_left_rps_ratio   * (2.0f / 255.0f);
+                    sample.rear_right_rps_ratio  = msg.rear_right_rps_ratio  * (2.0f / 255.0f);
 
                     buffer_.push(sample);
 

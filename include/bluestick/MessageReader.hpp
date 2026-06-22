@@ -19,6 +19,8 @@ struct LogSample {
     float rear_right_pwm;
     float rear_left_slip;
     float rear_right_slip;
+    float rear_left_rps_ratio;   // 0.0-2.0 (current RPS / target RPS)
+    float rear_right_rps_ratio;
 };
 
 // Circular buffer of LogSamples, fixed capacity.
@@ -36,7 +38,9 @@ public:
                     std::vector<float>& rear_left_pwm,
                     std::vector<float>& rear_right_pwm,
                     std::vector<float>& rear_left_slip,
-                    std::vector<float>& rear_right_slip) const;
+                    std::vector<float>& rear_right_slip,
+                    std::vector<float>& rear_left_rps_ratio,
+                    std::vector<float>& rear_right_rps_ratio) const;
 
     size_t size() const;
     size_t capacity() const { return capacity_; }

@@ -63,6 +63,8 @@ struct PACKED MessageOutLog {
     uint8_t rear_right_pwm;
     uint8_t rear_left_slip;
     uint8_t rear_right_slip;
+    uint8_t rear_left_rps_ratio;  // 0-255 → 0.0-2.0 (current RPS / target RPS, clamped)
+    uint8_t rear_right_rps_ratio;
 };
 
 constexpr size_t MESSAGE_OUT_LOG_SIZE = sizeof(MessageOutLog);

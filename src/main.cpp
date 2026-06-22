@@ -239,17 +239,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       float yScale;  // multiplier applied before plotting (zoom per-channel)
   };
   // Default distinct colors per channel
-  std::array<ChannelCfg, 5> channels = {{
-      {"Throttle",       true, {0.20f, 0.80f, 0.20f, 1.0f}, 1.0f},
-      {"Rear Left PWM",  true, {0.20f, 0.60f, 1.00f, 1.0f}, 1.0f},
-      {"Rear Right PWM", true, {1.00f, 0.40f, 0.20f, 1.0f}, 1.0f},
-      {"Rear Left Slip", true, {1.00f, 0.80f, 0.10f, 1.0f}, 1.0f},
-      {"Rear Right Slip",true, {0.90f, 0.20f, 0.80f, 1.0f}, 1.0f},
+  std::array<ChannelCfg, 7> channels = {{
+      {"Throttle",            true,  {0.20f, 0.80f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left PWM",       true,  {0.20f, 0.60f, 1.00f, 1.0f}, 1.0f},
+      {"Rear Right PWM",      true,  {1.00f, 0.40f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left Slip",      true,  {1.00f, 0.80f, 0.10f, 1.0f}, 1.0f},
+      {"Rear Right Slip",     true,  {0.90f, 0.20f, 0.80f, 1.0f}, 1.0f},
+      {"RL RPS Ratio",        true,  {0.20f, 0.90f, 0.90f, 1.0f}, 1.0f},
+      {"RR RPS Ratio",        true,  {0.90f, 0.50f, 0.20f, 1.0f}, 1.0f},
   }};
 
   // Snapshot vectors updated each frame from the ring buffer
   std::vector<float> snapTs;
-  std::vector<float> snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip;
+  std::vector<float> snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip, snapRLRpsRatio, snapRRRpsRatio;
 
   // Dummy data generator state
   bool dummyActive = false;
@@ -623,8 +625,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         s.throttle       = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.20f * t);
         s.rear_left_pwm  = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t + 1.0f);
         s.rear_right_pwm = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t - 1.0f);
-        s.rear_left_slip = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t + 2.0f);
-        s.rear_right_slip= 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t - 2.0f);
+        s.rear_left_slip        = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t + 2.0f);
+        s.rear_right_slip       = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t - 2.0f);
+        s.rear_left_rps_ratio   = 1.0f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t + 0.5f);
+        s.rear_right_rps_ratio  = 1.0f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t - 0.5f);
         messageReader.buffer().push(s);
       }
     }
@@ -635,7 +639,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // Snapshot ring buffer once per frame (only when not paused)
     if (!oscPaused) {
-      messageReader.buffer().snapshot(snapTs, snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip);
+      messageReader.buffer().snapshot(snapTs, snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip, snapRLRpsRatio, snapRRRpsRatio);
     }
 
     // Controls row
@@ -670,6 +674,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       snapTs.clear();
       snapThrottle.clear(); snapRLPwm.clear(); snapRRPwm.clear();
       snapRLSlip.clear();   snapRRSlip.clear();
+      snapRLRpsRatio.clear(); snapRRRpsRatio.clear();
     }
 
     // Channel visibility + color + scale row
@@ -706,9 +711,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     const ImVec2 plotSize(-1, -1);  // fill remaining space
     if (ImPlot::BeginPlot("##osc", plotSize)) {
-      ImPlot::SetupAxes("Time (ms)", "Value (0-1)");
+      ImPlot::SetupAxes("Time (ms)", "Value");
       ImPlot::SetupAxisLimits(ImAxis_X1, static_cast<double>(xMin), static_cast<double>(xMax), ImGuiCond_Always);
-      ImPlot::SetupAxisLimits(ImAxis_Y1, -0.05, 1.05, ImGuiCond_Once);
+      ImPlot::SetupAxisLimits(ImAxis_Y1, -0.05, 2.05, ImGuiCond_Once);
 
       const size_t n = snapTs.size();
 
@@ -794,11 +799,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         }
       };
 
-      plotChannel(0, snapThrottle, channels[0].label);
-      plotChannel(1, snapRLPwm,    channels[1].label);
-      plotChannel(2, snapRRPwm,    channels[2].label);
-      plotChannel(3, snapRLSlip,   channels[3].label);
-      plotChannel(4, snapRRSlip,   channels[4].label);
+      plotChannel(0, snapThrottle,    channels[0].label);
+      plotChannel(1, snapRLPwm,       channels[1].label);
+      plotChannel(2, snapRRPwm,       channels[2].label);
+      plotChannel(3, snapRLSlip,      channels[3].label);
+      plotChannel(4, snapRRSlip,      channels[4].label);
+      plotChannel(5, snapRLRpsRatio,  channels[5].label);
+      plotChannel(6, snapRRRpsRatio,  channels[6].label);
 
       // Write-pointer line drawn once, outside the per-channel lambda
       if (oscViewMode == OscViewMode::Circular && !snapTs.empty()) {
