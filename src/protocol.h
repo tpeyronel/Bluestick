@@ -67,13 +67,20 @@ enum MessageOutType : uint8_t {
 };
 
 struct PACKED MessageOutLogPayload {
+    // 0.0 to 1.0
     uint8_t throttle;
+
+    // 0 RPM to 255 RPM
+    uint8_t front_right_rpm;
+    uint8_t front_left_rpm;
+    uint8_t rear_right_rpm;
+    uint8_t rear_left_rpm;
+    uint8_t rear_right_target_rpm;
+    uint8_t rear_left_target_rpm;
+
+    // 0.0 to 1.0
     uint8_t rear_left_pwm;
     uint8_t rear_right_pwm;
-    uint8_t rear_left_slip;
-    uint8_t rear_right_slip;
-    uint8_t rear_left_rps_ratio;  // 0-255 → 0.0-2.0 (current RPS / target RPS, clamped)
-    uint8_t rear_right_rps_ratio;
 };
 
 union PACKED MessageOutPayload {

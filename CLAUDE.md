@@ -27,7 +27,7 @@ Executable: `build/Debug/bluestick.exe`
 
 **Outgoing (PC → STM32):** `Message_t` union, always `MESSAGE_SIZE` (2) bytes. First byte is `MessageType` enum.
 
-**Incoming (STM32 → PC):** `MessageOut_t` struct: `sof` (always `START_OF_FRAME_MARKER` = `0xAA`), `type` (`MessageOutType`), `payload` (`MessageOutPayload` union). Currently only `MSG_OUT_TYPE_LOG = 0`, whose payload is `MessageOutLogPayload` — 7 bytes packed: `throttle, rear_left_pwm, rear_right_pwm, rear_left_slip, rear_right_slip, rear_left_rps_ratio, rear_right_rps_ratio` (all `uint8_t`; PWM/throttle/slip normalised to 0–1, rps_ratio normalised to 0–2, on receipt).
+**Incoming (STM32 → PC):** `MessageOut_t` struct: `sof` (always `START_OF_FRAME_MARKER` = `0xAA`), `type` (`MessageOutType`), `payload` (`MessageOutPayload` union). Currently only `MSG_OUT_TYPE_LOG = 0`, whose payload is `MessageOutLogPayload` — 9 bytes packed: `throttle, front_right_rpm, front_left_rpm, rear_right_rpm, rear_left_rpm, rear_right_target_rpm, rear_left_target_rpm, rear_left_pwm, rear_right_pwm` (all `uint8_t`; throttle/PWM normalised to 0–1 on receipt, RPMs are raw 0–255 counts normalised to 0–1). `MessageReader` derives two extra `LogSample` fields not on the wire: `real_rpm = max(front_left_rpm, front_right_rpm)` (normalised) and `rear_{left,right}_slip = rear_{left,right}_rpm / real_rpm` (raw counts, unitless, 0 when `real_rpm` is 0).
 
 Sync strategy: `MessageReader` scans incoming bytes for the SOF marker, then a recognised type byte, then accumulates the fixed-size payload. A byte that fails to match SOF or a known type is dropped and rescanned, which resyncs after corrupted or lost bytes. No CRC yet.
 

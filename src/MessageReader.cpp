@@ -33,36 +33,51 @@ size_t LogRingBuffer::size() const {
 
 size_t LogRingBuffer::snapshot(std::vector<float>& timestamps,
                                std::vector<float>& throttle,
+                               std::vector<float>& front_left_rpm,
+                               std::vector<float>& front_right_rpm,
+                               std::vector<float>& rear_left_rpm,
+                               std::vector<float>& rear_right_rpm,
+                               std::vector<float>& rear_left_target_rpm,
+                               std::vector<float>& rear_right_target_rpm,
                                std::vector<float>& rear_left_pwm,
                                std::vector<float>& rear_right_pwm,
+                               std::vector<float>& real_rpm,
                                std::vector<float>& rear_left_slip,
-                               std::vector<float>& rear_right_slip,
-                               std::vector<float>& rear_left_rps_ratio,
-                               std::vector<float>& rear_right_rps_ratio) const {
+                               std::vector<float>& rear_right_slip) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     timestamps.resize(count_);
     throttle.resize(count_);
+    front_left_rpm.resize(count_);
+    front_right_rpm.resize(count_);
+    rear_left_rpm.resize(count_);
+    rear_right_rpm.resize(count_);
+    rear_left_target_rpm.resize(count_);
+    rear_right_target_rpm.resize(count_);
     rear_left_pwm.resize(count_);
     rear_right_pwm.resize(count_);
+    real_rpm.resize(count_);
     rear_left_slip.resize(count_);
     rear_right_slip.resize(count_);
-    rear_left_rps_ratio.resize(count_);
-    rear_right_rps_ratio.resize(count_);
 
     // Oldest sample is at (head_ - count_ + capacity_) % capacity_
     const size_t oldest = (head_ + capacity_ - count_) % capacity_;
     for (size_t i = 0; i < count_; ++i) {
         const size_t idx = (oldest + i) % capacity_;
         const auto& s = buf_[idx];
-        timestamps[i]          = static_cast<float>(s.timestampMs);
-        throttle[i]            = s.throttle;
-        rear_left_pwm[i]       = s.rear_left_pwm;
-        rear_right_pwm[i]      = s.rear_right_pwm;
-        rear_left_slip[i]      = s.rear_left_slip;
-        rear_right_slip[i]     = s.rear_right_slip;
-        rear_left_rps_ratio[i] = s.rear_left_rps_ratio;
-        rear_right_rps_ratio[i]= s.rear_right_rps_ratio;
+        timestamps[i]             = static_cast<float>(s.timestampMs);
+        throttle[i]                = s.throttle;
+        front_left_rpm[i]          = s.front_left_rpm;
+        front_right_rpm[i]         = s.front_right_rpm;
+        rear_left_rpm[i]           = s.rear_left_rpm;
+        rear_right_rpm[i]          = s.rear_right_rpm;
+        rear_left_target_rpm[i]    = s.rear_left_target_rpm;
+        rear_right_target_rpm[i]   = s.rear_right_target_rpm;
+        rear_left_pwm[i]           = s.rear_left_pwm;
+        rear_right_pwm[i]          = s.rear_right_pwm;
+        real_rpm[i]                = s.real_rpm;
+        rear_left_slip[i]          = s.rear_left_slip;
+        rear_right_slip[i]         = s.rear_right_slip;
     }
 
     return count_;
@@ -156,15 +171,25 @@ void MessageReader::readerLoop(HANDLE h) {
                 MessageOut_t msg{};
                 std::memcpy(&msg, stagingBuf, MESSAGE_OUT_SIZE);
 
+                const auto& p = msg.payload.log;
+
+                // Reference wheel speed for slip: fastest (least loaded) front wheel.
+                const float realRpmRaw = static_cast<float>(std::max(p.front_left_rpm, p.front_right_rpm));
+
                 LogSample sample{};
-                sample.timestampMs    = frameStartMs;
-                sample.throttle       = msg.payload.log.throttle       / 255.0f;
-                sample.rear_left_pwm  = msg.payload.log.rear_left_pwm  / 255.0f;
-                sample.rear_right_pwm = msg.payload.log.rear_right_pwm / 255.0f;
-                sample.rear_left_slip       = msg.payload.log.rear_left_slip       / 255.0f;
-                sample.rear_right_slip      = msg.payload.log.rear_right_slip      / 255.0f;
-                sample.rear_left_rps_ratio  = msg.payload.log.rear_left_rps_ratio  * (2.0f / 255.0f);
-                sample.rear_right_rps_ratio = msg.payload.log.rear_right_rps_ratio * (2.0f / 255.0f);
+                sample.timestampMs          = frameStartMs;
+                sample.throttle             = p.throttle / 255.0f;
+                sample.front_left_rpm       = p.front_left_rpm  / 255.0f;
+                sample.front_right_rpm      = p.front_right_rpm / 255.0f;
+                sample.rear_left_rpm        = p.rear_left_rpm  / 255.0f;
+                sample.rear_right_rpm       = p.rear_right_rpm / 255.0f;
+                sample.rear_left_target_rpm  = p.rear_left_target_rpm  / 255.0f;
+                sample.rear_right_target_rpm = p.rear_right_target_rpm / 255.0f;
+                sample.rear_left_pwm        = p.rear_left_pwm  / 255.0f;
+                sample.rear_right_pwm       = p.rear_right_pwm / 255.0f;
+                sample.real_rpm             = realRpmRaw / 255.0f;
+                sample.rear_left_slip       = realRpmRaw > 0.0f ? p.rear_left_rpm  / realRpmRaw : 0.0f;
+                sample.rear_right_slip      = realRpmRaw > 0.0f ? p.rear_right_rpm / realRpmRaw : 0.0f;
 
                 buffer_.push(sample);
 

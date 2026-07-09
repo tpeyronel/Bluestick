@@ -239,19 +239,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       float yScale;  // multiplier applied before plotting (zoom per-channel)
   };
   // Default distinct colors per channel
-  std::array<ChannelCfg, 7> channels = {{
-      {"Throttle",            true,  {0.20f, 0.80f, 0.20f, 1.0f}, 1.0f},
-      {"Rear Left PWM",       true,  {0.20f, 0.60f, 1.00f, 1.0f}, 1.0f},
-      {"Rear Right PWM",      true,  {1.00f, 0.40f, 0.20f, 1.0f}, 1.0f},
-      {"Rear Left Slip",      true,  {1.00f, 0.80f, 0.10f, 1.0f}, 1.0f},
-      {"Rear Right Slip",     true,  {0.90f, 0.20f, 0.80f, 1.0f}, 1.0f},
-      {"RL RPS Ratio",        true,  {0.20f, 0.90f, 0.90f, 1.0f}, 1.0f},
-      {"RR RPS Ratio",        true,  {0.90f, 0.50f, 0.20f, 1.0f}, 1.0f},
+  std::array<ChannelCfg, 12> channels = {{
+      {"Throttle",              true,  {0.20f, 0.80f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left PWM",         true,  {0.20f, 0.60f, 1.00f, 1.0f}, 1.0f},
+      {"Rear Right PWM",        true,  {1.00f, 0.40f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left Slip",        true,  {1.00f, 0.80f, 0.10f, 1.0f}, 1.0f},
+      {"Rear Right Slip",       true,  {0.90f, 0.20f, 0.80f, 1.0f}, 1.0f},
+      {"Rear Left RPM",         true,  {0.20f, 0.90f, 0.90f, 1.0f}, 1.0f},
+      {"Rear Right RPM",        true,  {0.90f, 0.50f, 0.20f, 1.0f}, 1.0f},
+      {"Rear Left Target RPM",  false, {0.20f, 0.90f, 0.50f, 1.0f}, 1.0f},
+      {"Rear Right Target RPM", false, {0.90f, 0.90f, 0.20f, 1.0f}, 1.0f},
+      {"Front Left RPM",        false, {0.50f, 0.50f, 1.00f, 1.0f}, 1.0f},
+      {"Front Right RPM",       false, {1.00f, 0.50f, 0.50f, 1.0f}, 1.0f},
+      {"Real RPM",              false, {0.70f, 0.70f, 0.70f, 1.0f}, 1.0f},
   }};
 
   // Snapshot vectors updated each frame from the ring buffer
   std::vector<float> snapTs;
-  std::vector<float> snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip, snapRLRpsRatio, snapRRRpsRatio;
+  std::vector<float> snapThrottle,
+      snapFrontLeftRpm, snapFrontRightRpm,
+      snapRearLeftRpm, snapRearRightRpm,
+      snapRearLeftTargetRpm, snapRearRightTargetRpm,
+      snapRLPwm, snapRRPwm,
+      snapRealRpm, snapRLSlip, snapRRSlip;
 
   // Dummy data generator state
   bool dummyActive = false;
@@ -666,14 +676,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         const float t   = tMs / 1000.0f;
 
         bluestick::LogSample s{};
-        s.timestampMs    = tMs;
-        s.throttle       = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.20f * t);
-        s.rear_left_pwm  = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t + 1.0f);
-        s.rear_right_pwm = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t - 1.0f);
-        s.rear_left_slip        = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t + 2.0f);
-        s.rear_right_slip       = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.53f * t - 2.0f);
-        s.rear_left_rps_ratio   = 1.0f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t + 0.5f);
-        s.rear_right_rps_ratio  = 1.0f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t - 0.5f);
+        s.timestampMs      = tMs;
+        s.throttle         = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.20f * t);
+        s.front_left_rpm   = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.13f * t + 0.3f);
+        s.front_right_rpm  = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.13f * t - 0.3f);
+        s.rear_left_rpm         = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t + 0.5f);
+        s.rear_right_rpm        = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t - 0.5f);
+        s.rear_left_target_rpm  = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t);
+        s.rear_right_target_rpm = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.17f * t);
+        s.rear_left_pwm    = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t + 1.0f);
+        s.rear_right_pwm   = 0.5f + 0.5f * std::sin(2.0f * 3.14159f * 0.31f * t - 1.0f);
+        s.real_rpm         = std::max(s.front_left_rpm, s.front_right_rpm);
+        s.rear_left_slip   = s.real_rpm > 0.0f ? s.rear_left_rpm  / s.real_rpm : 0.0f;
+        s.rear_right_slip  = s.real_rpm > 0.0f ? s.rear_right_rpm / s.real_rpm : 0.0f;
         messageReader.buffer().push(s);
       }
     }
@@ -684,7 +699,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // Snapshot ring buffer once per frame (only when not paused)
     if (!oscPaused) {
-      messageReader.buffer().snapshot(snapTs, snapThrottle, snapRLPwm, snapRRPwm, snapRLSlip, snapRRSlip, snapRLRpsRatio, snapRRRpsRatio);
+      messageReader.buffer().snapshot(snapTs, snapThrottle,
+          snapFrontLeftRpm, snapFrontRightRpm,
+          snapRearLeftRpm, snapRearRightRpm,
+          snapRearLeftTargetRpm, snapRearRightTargetRpm,
+          snapRLPwm, snapRRPwm,
+          snapRealRpm, snapRLSlip, snapRRSlip);
     }
 
     // Controls row
@@ -717,9 +737,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     if (ImGui::Button("Clear")) {
       messageReader.buffer().clear();
       snapTs.clear();
-      snapThrottle.clear(); snapRLPwm.clear(); snapRRPwm.clear();
-      snapRLSlip.clear();   snapRRSlip.clear();
-      snapRLRpsRatio.clear(); snapRRRpsRatio.clear();
+      snapThrottle.clear();
+      snapFrontLeftRpm.clear(); snapFrontRightRpm.clear();
+      snapRearLeftRpm.clear();  snapRearRightRpm.clear();
+      snapRearLeftTargetRpm.clear(); snapRearRightTargetRpm.clear();
+      snapRLPwm.clear(); snapRRPwm.clear();
+      snapRealRpm.clear();
+      snapRLSlip.clear(); snapRRSlip.clear();
     }
 
     // Channel visibility + color + scale row
@@ -844,13 +868,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         }
       };
 
-      plotChannel(0, snapThrottle,    channels[0].label);
-      plotChannel(1, snapRLPwm,       channels[1].label);
-      plotChannel(2, snapRRPwm,       channels[2].label);
-      plotChannel(3, snapRLSlip,      channels[3].label);
-      plotChannel(4, snapRRSlip,      channels[4].label);
-      plotChannel(5, snapRLRpsRatio,  channels[5].label);
-      plotChannel(6, snapRRRpsRatio,  channels[6].label);
+      plotChannel(0,  snapThrottle,             channels[0].label);
+      plotChannel(1,  snapRLPwm,                channels[1].label);
+      plotChannel(2,  snapRRPwm,                channels[2].label);
+      plotChannel(3,  snapRLSlip,                channels[3].label);
+      plotChannel(4,  snapRRSlip,                channels[4].label);
+      plotChannel(5,  snapRearLeftRpm,           channels[5].label);
+      plotChannel(6,  snapRearRightRpm,          channels[6].label);
+      plotChannel(7,  snapRearLeftTargetRpm,     channels[7].label);
+      plotChannel(8,  snapRearRightTargetRpm,    channels[8].label);
+      plotChannel(9,  snapFrontLeftRpm,          channels[9].label);
+      plotChannel(10, snapFrontRightRpm,         channels[10].label);
+      plotChannel(11, snapRealRpm,               channels[11].label);
 
       // Write-pointer line drawn once, outside the per-channel lambda
       if (oscViewMode == OscViewMode::Circular && !snapTs.empty()) {

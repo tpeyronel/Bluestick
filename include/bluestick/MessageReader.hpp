@@ -15,12 +15,17 @@ namespace bluestick {
 struct LogSample {
     double timestampMs;   // ms since reader was started (first connect)
     float throttle;
+    float front_left_rpm;
+    float front_right_rpm;
+    float rear_left_rpm;
+    float rear_right_rpm;
+    float rear_left_target_rpm;
+    float rear_right_target_rpm;
     float rear_left_pwm;
     float rear_right_pwm;
-    float rear_left_slip;
-    float rear_right_slip;
-    float rear_left_rps_ratio;   // 0.0-2.0 (current RPS / target RPS)
-    float rear_right_rps_ratio;
+    float real_rpm;         // max(front_left_rpm, front_right_rpm), normalised 0.0-1.0
+    float rear_left_slip;   // rear_left_rpm / real_rpm — unitless, can exceed 1.0
+    float rear_right_slip;  // rear_right_rpm / real_rpm — unitless, can exceed 1.0
 };
 
 // Circular buffer of LogSamples, fixed capacity.
@@ -35,12 +40,17 @@ public:
     // Fills xs/ys arrays for each channel; returns number of samples copied.
     size_t snapshot(std::vector<float>& timestamps,
                     std::vector<float>& throttle,
+                    std::vector<float>& front_left_rpm,
+                    std::vector<float>& front_right_rpm,
+                    std::vector<float>& rear_left_rpm,
+                    std::vector<float>& rear_right_rpm,
+                    std::vector<float>& rear_left_target_rpm,
+                    std::vector<float>& rear_right_target_rpm,
                     std::vector<float>& rear_left_pwm,
                     std::vector<float>& rear_right_pwm,
+                    std::vector<float>& real_rpm,
                     std::vector<float>& rear_left_slip,
-                    std::vector<float>& rear_right_slip,
-                    std::vector<float>& rear_left_rps_ratio,
-                    std::vector<float>& rear_right_rps_ratio) const;
+                    std::vector<float>& rear_right_slip) const;
 
     size_t size() const;
     size_t capacity() const { return capacity_; }
