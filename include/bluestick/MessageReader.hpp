@@ -54,8 +54,9 @@ private:
 };
 
 // Spawns a background thread that reads from a Windows serial HANDLE,
-// assembles MessageOutLog frames, timestamps them, and appends to a ring buffer.
-// Synchronization strategy: idle gap between bytes resets the accumulator.
+// assembles MessageOut_t frames, timestamps them, and appends to a ring buffer.
+// Synchronization strategy: scans for START_OF_FRAME_MARKER to resync after
+// corrupted or lost bytes.
 class MessageReader {
 public:
     MessageReader();

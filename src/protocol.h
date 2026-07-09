@@ -66,8 +66,7 @@ enum MessageOutType : uint8_t {
     MSG_OUT_TYPE_LOG = 0,
 };
 
-struct PACKED MessageOutLog {
-    MessageOutType type;
+struct PACKED MessageOutLogPayload {
     uint8_t throttle;
     uint8_t rear_left_pwm;
     uint8_t rear_right_pwm;
@@ -77,11 +76,16 @@ struct PACKED MessageOutLog {
     uint8_t rear_right_rps_ratio;
 };
 
-constexpr size_t MESSAGE_OUT_LOG_SIZE = sizeof(MessageOutLog);
+union PACKED MessageOutPayload {
+    MessageOutLogPayload log;
+};
 
-typedef union PACKED MessageOut_t {
+#define START_OF_FRAME_MARKER 0xAA
+
+typedef struct PACKED MessageOut_t {
+    uint8_t sof;
     MessageOutType type;
-    MessageOutLog log;
+    MessageOutPayload payload;
 } MessageOut_t;
 
 constexpr size_t MESSAGE_OUT_SIZE = sizeof(MessageOut_t);

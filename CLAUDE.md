@@ -27,9 +27,9 @@ Executable: `build/Debug/bluestick.exe`
 
 **Outgoing (PC → STM32):** `Message_t` union, always `MESSAGE_SIZE` (2) bytes. First byte is `MessageType` enum.
 
-**Incoming (STM32 → PC):** `MessageOut_t` union. Currently only `MSG_OUT_TYPE_LOG = 0`, which is `MessageOutLog` — 6 bytes packed: `type, throttle, rear_left_pwm, rear_right_pwm, rear_left_slip, rear_right_slip` (all `uint8_t`, normalised to 0–1 on receipt).
+**Incoming (STM32 → PC):** `MessageOut_t` struct: `sof` (always `START_OF_FRAME_MARKER` = `0xAA`), `type` (`MessageOutType`), `payload` (`MessageOutPayload` union). Currently only `MSG_OUT_TYPE_LOG = 0`, whose payload is `MessageOutLogPayload` — 7 bytes packed: `throttle, rear_left_pwm, rear_right_pwm, rear_left_slip, rear_right_slip, rear_left_rps_ratio, rear_right_rps_ratio` (all `uint8_t`; PWM/throttle/slip normalised to 0–1, rps_ratio normalised to 0–2, on receipt).
 
-Sync strategy: idle gap between bytes (via `ReadIntervalTimeout`) resets the frame accumulator. No magic byte or CRC yet.
+Sync strategy: `MessageReader` scans incoming bytes for the SOF marker, then a recognised type byte, then accumulates the fixed-size payload. A byte that fails to match SOF or a known type is dropped and rescanned, which resyncs after corrupted or lost bytes. No CRC yet.
 
 ## Key dependencies (all via CMake FetchContent)
 
@@ -48,5 +48,5 @@ Sync strategy: idle gap between bytes (via `ReadIntervalTimeout`) resets the fra
 
 - C++20, MSVC with `/W4 /permissive-`.
 - All ImPlot `PlotLine` calls use `float` arrays for both x (timestamps in ms) and y to avoid template deduction ambiguity.
-- No framing bytes or CRC on the serial link — keep it simple until there is a demonstrated need.
+- Incoming frames use a SOF marker for resync but no CRC yet — keep it simple until there is a demonstrated need.
 - `UNICODE` and `_UNICODE` defined project-wide; use wide strings for Win32 calls.

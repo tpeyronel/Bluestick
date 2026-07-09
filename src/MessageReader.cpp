@@ -96,24 +96,21 @@ void MessageReader::stop() {
 
 void MessageReader::readerLoop(HANDLE h) {
     // We accumulate raw bytes into a small staging buffer.
-    // An idle gap (no bytes for kIdleGapMs) resets accumulation — this is
-    // the sync strategy. A complete MessageOutLog is MESSAGE_OUT_LOG_SIZE bytes.
-    constexpr DWORD kIdleGapMs = 5;
+    // Sync strategy: look for START_OF_FRAME_MARKER, then a known message
+    // type, then the fixed-size payload. Any mismatch drops us back to
+    // searching for the next SOF byte, which resyncs after corrupted or
+    // lost bytes without relying on idle gaps between frames.
 
-    // Update the COM port read timeout to match our idle gap heuristic.
-    COMMTIMEOUTS timeouts{};
-    timeouts.ReadIntervalTimeout         = kIdleGapMs;
-    timeouts.ReadTotalTimeoutConstant    = 0;
-    timeouts.ReadTotalTimeoutMultiplier  = 0;
-    timeouts.WriteTotalTimeoutConstant   = 100;
-    timeouts.WriteTotalTimeoutMultiplier = 10;
-    SetCommTimeouts(h, &timeouts);
+    // Read timeouts are configured once when the port is opened
+    // (BluetoothSerial::connect); framing no longer needs its own.
 
-    uint8_t stagingBuf[MESSAGE_OUT_LOG_SIZE];
+    enum class State { WaitSof, WaitType, AccumPayload };
+    State state = State::WaitSof;
+
+    uint8_t stagingBuf[MESSAGE_OUT_SIZE];
     size_t  stagingLen = 0;
-    bool    inFrame    = false;
 
-    // Timestamp of when the first byte of the current frame arrived.
+    // Timestamp of when the SOF byte of the current frame arrived.
     double frameStartMs = 0.0;
 
     uint8_t readBuf[64];
@@ -121,58 +118,57 @@ void MessageReader::readerLoop(HANDLE h) {
     while (!stopRequested_.load()) {
         DWORD bytesRead = 0;
         if (!ReadFile(h, readBuf, sizeof(readBuf), &bytesRead, nullptr) || bytesRead == 0) {
-            // Timeout (ReadIntervalTimeout expired) → treat as idle gap → reset frame.
-            if (stagingLen > 0) {
-                stagingLen = 0;
-                inFrame    = false;
-            }
             continue;
         }
 
         for (DWORD i = 0; i < bytesRead; ++i) {
             const uint8_t byte = readBuf[i];
 
-            if (!inFrame) {
-                // Wait for a valid type byte.
-                if (byte == static_cast<uint8_t>(MSG_OUT_TYPE_LOG)) {
-                    inFrame    = true;
-                    stagingLen = 0;
+            if (state == State::WaitSof) {
+                if (byte == START_OF_FRAME_MARKER) {
+                    stagingLen               = 0;
+                    stagingBuf[stagingLen++] = byte;
+                    state                    = State::WaitType;
 
                     const auto now = std::chrono::steady_clock::now();
                     frameStartMs   = std::chrono::duration<double, std::milli>(now - epoch_).count();
+                }
+                // Not a SOF byte: discard and keep scanning.
+                continue;
+            }
 
+            if (state == State::WaitType) {
+                if (byte == static_cast<uint8_t>(MSG_OUT_TYPE_LOG)) {
                     stagingBuf[stagingLen++] = byte;
+                    state                    = State::AccumPayload;
+                } else {
+                    // Not a recognised type — this byte can't start a frame
+                    // either unless it's itself a SOF, so re-test it there.
+                    state = State::WaitSof;
+                    --i;
                 }
-                // Unknown type byte: discard and wait.
-            } else {
-                stagingBuf[stagingLen++] = byte;
+                continue;
+            }
 
-                if (stagingLen == MESSAGE_OUT_LOG_SIZE) {
-                    // Full frame — parse it.
-                    MessageOutLog msg{};
-                    std::memcpy(&msg, stagingBuf, MESSAGE_OUT_LOG_SIZE);
+            // State::AccumPayload
+            stagingBuf[stagingLen++] = byte;
+            if (stagingLen == MESSAGE_OUT_SIZE) {
+                MessageOut_t msg{};
+                std::memcpy(&msg, stagingBuf, MESSAGE_OUT_SIZE);
 
-                    LogSample sample{};
-                    sample.timestampMs    = frameStartMs;
-                    sample.throttle       = msg.throttle       / 255.0f;
-                    sample.rear_left_pwm  = msg.rear_left_pwm  / 255.0f;
-                    sample.rear_right_pwm = msg.rear_right_pwm / 255.0f;
-                    sample.rear_left_slip        = msg.rear_left_slip        / 255.0f;
-                    sample.rear_right_slip       = msg.rear_right_slip       / 255.0f;
-                    sample.rear_left_rps_ratio   = msg.rear_left_rps_ratio   * (2.0f / 255.0f);
-                    sample.rear_right_rps_ratio  = msg.rear_right_rps_ratio  * (2.0f / 255.0f);
+                LogSample sample{};
+                sample.timestampMs    = frameStartMs;
+                sample.throttle       = msg.payload.log.throttle       / 255.0f;
+                sample.rear_left_pwm  = msg.payload.log.rear_left_pwm  / 255.0f;
+                sample.rear_right_pwm = msg.payload.log.rear_right_pwm / 255.0f;
+                sample.rear_left_slip       = msg.payload.log.rear_left_slip       / 255.0f;
+                sample.rear_right_slip      = msg.payload.log.rear_right_slip      / 255.0f;
+                sample.rear_left_rps_ratio  = msg.payload.log.rear_left_rps_ratio  * (2.0f / 255.0f);
+                sample.rear_right_rps_ratio = msg.payload.log.rear_right_rps_ratio * (2.0f / 255.0f);
 
-                    buffer_.push(sample);
+                buffer_.push(sample);
 
-                    stagingLen = 0;
-                    inFrame    = false;
-                }
-
-                if (stagingLen > MESSAGE_OUT_LOG_SIZE) {
-                    // Should never happen, but guard against it.
-                    stagingLen = 0;
-                    inFrame    = false;
-                }
+                state = State::WaitSof;
             }
         }
     }
