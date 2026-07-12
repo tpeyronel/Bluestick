@@ -417,6 +417,28 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       if (!manualThrottleEnabled) ImGui::BeginDisabled();
       manualThrottleChanged = ImGui::SliderFloat("Throttle##manual", &manualThrottle, 0.0f, 1.0f, "%.2f");
       if (!manualThrottleEnabled) ImGui::EndDisabled();
+
+      auto sendAction = [&](MessageType type) {
+        Message_t msg{};
+        msg.type = type;
+        if (serialClient.isConnected()) {
+          if (serialClient.sendBytes(&msg, MESSAGE_SIZE)) {
+            pushLog(logs, "TX: " + describeMessage(msg));
+          } else {
+            pushLog(logs, "TX failed: " + serialClient.lastError());
+          }
+        } else {
+          pushLog(logs, "TX (disconnected): " + describeMessage(msg));
+        }
+      };
+
+      if (ImGui::Button("Toggle TC")) sendAction(MSG_TYPE_TOGGLE_TC);
+      ImGui::SameLine();
+      if (ImGui::Button("Toggle CC")) sendAction(MSG_TYPE_TOGGLE_CC);
+      ImGui::SameLine();
+      if (ImGui::Button("Increase CC")) sendAction(MSG_TYPE_INC_CC);
+      ImGui::SameLine();
+      if (ImGui::Button("Decrease CC")) sendAction(MSG_TYPE_DEC_CC);
     }
 
     if (ImGui::CollapsingHeader("Motor Constants Tuning")) {
