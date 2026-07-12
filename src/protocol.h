@@ -16,7 +16,7 @@ enum MessageType : uint8_t {
     MSG_TYPE_TOGGLE_CC = 2,
     MSG_TYPE_INC_CC = 3,
     MSG_TYPE_DEC_CC = 4,
-    MSG_TYPE_SET_MOTOR_PID_CONFIG = 5,
+    MSG_TYPE_SET_CONSTANTS = 5,
 };
 
 struct PACKED MessageSetThrottle {
@@ -40,13 +40,14 @@ struct PACKED MessageDecCc {
     enum MessageType type;
 };
 
-// Sent individually (not part of Message_t union) — 14 bytes.
-struct PACKED MessageSetMotorPidConfig {
+// Sent individually (not part of Message_t union) — 18 bytes.
+struct PACKED MessageSetConstants {
     enum MessageType type;
-    uint8_t motor_id;
     float Kp;
     float Ki;
     float Kd;
+    float time_constant;   // 0.0 to 1.0, logarithmic scale
+    uint8_t input_filter;  // 0 to 15
 };
 
 typedef union PACKED Message_t {

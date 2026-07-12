@@ -308,12 +308,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   float manualThrottle = 0.0f;
   bool  manualThrottleChanged = false;
 
-  struct MotorPidState {
+  struct ConstantsState {
       float Kp = 0.0f;
       float Ki = 0.0f;
       float Kd = 0.0f;
+      float timeConstant = 0.0f;  // 0.0-1.0, logarithmic scale
+      int   inputFilter  = 0;     // 0-15
   };
-  std::array<MotorPidState, 2> motorPid{};
+  ConstantsState constants{};
 
   bool done = false;
   while (!done) {
@@ -417,41 +419,42 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       if (!manualThrottleEnabled) ImGui::EndDisabled();
     }
 
-    if (ImGui::CollapsingHeader("Motor PID Tuning")) {
-      auto sendPid = [&](uint8_t motorId) {
-        MessageSetMotorPidConfig msg{};
-        msg.type     = MSG_TYPE_SET_MOTOR_PID_CONFIG;
-        msg.motor_id = motorId;
-        msg.Kp       = motorPid[motorId].Kp;
-        msg.Ki       = motorPid[motorId].Ki;
-        msg.Kd       = motorPid[motorId].Kd;
+    if (ImGui::CollapsingHeader("Motor Constants Tuning")) {
+      auto sendConstants = [&]() {
+        MessageSetConstants msg{};
+        msg.type          = MSG_TYPE_SET_CONSTANTS;
+        msg.Kp            = constants.Kp;
+        msg.Ki            = constants.Ki;
+        msg.Kd            = constants.Kd;
+        msg.time_constant = constants.timeConstant;
+        msg.input_filter  = static_cast<uint8_t>(constants.inputFilter);
         if (serialClient.isConnected()) {
           if (serialClient.sendBytes(&msg, sizeof(msg))) {
-            pushLog(logs, "TX: SetMotorPidConfig motor=" + std::to_string(motorId) +
-                " Kp=" + std::to_string(msg.Kp) +
+            pushLog(logs, "TX: SetConstants Kp=" + std::to_string(msg.Kp) +
                 " Ki=" + std::to_string(msg.Ki) +
-                " Kd=" + std::to_string(msg.Kd));
+                " Kd=" + std::to_string(msg.Kd) +
+                " time_constant=" + std::to_string(msg.time_constant) +
+                " input_filter=" + std::to_string(msg.input_filter));
           } else {
             pushLog(logs, "TX failed: " + serialClient.lastError());
           }
         } else {
-          pushLog(logs, "TX (disconnected): SetMotorPidConfig motor=" + std::to_string(motorId));
+          pushLog(logs, "TX (disconnected): SetConstants");
         }
       };
 
-      for (uint8_t i = 0; i < 2; ++i) {
-        ImGui::PushID(i);
-        ImGui::SeparatorText(i == 0 ? "Motor 0 (Left)" : "Motor 1 (Right)");
-        ImGui::SetNextItemWidth(200.0f);
-        ImGui::SliderFloat("Kp##pid", &motorPid[i].Kp, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SetNextItemWidth(200.0f);
-        ImGui::SliderFloat("Ki##pid", &motorPid[i].Ki, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SetNextItemWidth(200.0f);
-        ImGui::SliderFloat("Kd##pid", &motorPid[i].Kd, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
-        if (ImGui::Button("Send##pid")) {
-          sendPid(i);
-        }
-        ImGui::PopID();
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::SliderFloat("Kp##pid", &constants.Kp, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::SliderFloat("Ki##pid", &constants.Ki, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::SliderFloat("Kd##pid", &constants.Kd, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::SliderFloat("Time Constant##pid", &constants.timeConstant, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+      ImGui::SetNextItemWidth(200.0f);
+      ImGui::SliderInt("Input Filter##pid", &constants.inputFilter, 0, 15);
+      if (ImGui::Button("Send##pid")) {
+        sendConstants();
       }
     }
 
