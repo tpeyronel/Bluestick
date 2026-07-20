@@ -345,11 +345,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     for (const auto& message : messages) {
       if (serialClient.isConnected()) {
-        if (serialClient.sendBytes(&message, MESSAGE_SIZE)) {
-          pushLog(logs, "TX: " + describeMessage(message));
-        } else {
-          pushLog(logs, "TX failed: " + serialClient.lastError());
-        }
+        serialClient.sendBytesAsync(&message, MESSAGE_SIZE, describeMessage(message));
       } else {
         pushLog(logs, "TX (disconnected): " + describeMessage(message));
       }
@@ -361,11 +357,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       manualMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
       manualMsg.set_throttle.throttle = static_cast<uint8_t>(std::clamp(manualThrottle, 0.0f, 1.0f) * 255.0f);
       if (serialClient.isConnected()) {
-        if (serialClient.sendBytes(&manualMsg, MESSAGE_SIZE)) {
-          pushLog(logs, "TX: " + describeMessage(manualMsg));
-        } else {
-          pushLog(logs, "TX failed: " + serialClient.lastError());
-        }
+        serialClient.sendBytesAsync(&manualMsg, MESSAGE_SIZE, describeMessage(manualMsg));
       } else {
         pushLog(logs, "TX (disconnected): " + describeMessage(manualMsg));
       }
@@ -377,8 +369,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       zeroMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
       zeroMsg.set_throttle.throttle = 0;
       if (serialClient.isConnected()) {
-        serialClient.sendBytes(&zeroMsg, MESSAGE_SIZE);
-        pushLog(logs, "TX: manual throttle off → " + describeMessage(zeroMsg));
+        serialClient.sendBytesAsync(&zeroMsg, MESSAGE_SIZE, "manual throttle off → " + describeMessage(zeroMsg));
+      }
+    }
+
+    // Drain async send results into the log once per frame.
+    for (const auto& result : serialClient.pollSendResults()) {
+      if (result.success) {
+        pushLog(logs, "TX: " + result.description);
+      } else {
+        pushLog(logs, "TX failed (" + result.description + "): " + result.error);
       }
     }
     prevManualThrottleEnabled = manualThrottleEnabled;
@@ -422,11 +422,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         Message_t msg{};
         msg.type = type;
         if (serialClient.isConnected()) {
-          if (serialClient.sendBytes(&msg, MESSAGE_SIZE)) {
-            pushLog(logs, "TX: " + describeMessage(msg));
-          } else {
-            pushLog(logs, "TX failed: " + serialClient.lastError());
-          }
+          serialClient.sendBytesAsync(&msg, MESSAGE_SIZE, describeMessage(msg));
         } else {
           pushLog(logs, "TX (disconnected): " + describeMessage(msg));
         }
@@ -450,18 +446,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         msg.Kd            = constants.Kd;
         msg.time_constant = constants.timeConstant;
         msg.input_filter  = static_cast<uint8_t>(constants.inputFilter);
+        const std::string description = "SetConstants Kp=" + std::to_string(msg.Kp) +
+            " Ki=" + std::to_string(msg.Ki) +
+            " Kd=" + std::to_string(msg.Kd) +
+            " time_constant=" + std::to_string(msg.time_constant) +
+            " input_filter=" + std::to_string(msg.input_filter);
         if (serialClient.isConnected()) {
-          if (serialClient.sendBytes(&msg, sizeof(msg))) {
-            pushLog(logs, "TX: SetConstants Kp=" + std::to_string(msg.Kp) +
-                " Ki=" + std::to_string(msg.Ki) +
-                " Kd=" + std::to_string(msg.Kd) +
-                " time_constant=" + std::to_string(msg.time_constant) +
-                " input_filter=" + std::to_string(msg.input_filter));
-          } else {
-            pushLog(logs, "TX failed: " + serialClient.lastError());
-          }
+          serialClient.sendBytesAsync(&msg, sizeof(msg), description);
         } else {
-          pushLog(logs, "TX (disconnected): SetConstants");
+          pushLog(logs, "TX (disconnected): " + description);
         }
       };
 
@@ -472,7 +465,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       ImGui::SetNextItemWidth(200.0f);
       ImGui::SliderFloat("Kd##pid", &constants.Kd, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
       ImGui::SetNextItemWidth(200.0f);
-      ImGui::SliderFloat("Time Constant##pid", &constants.timeConstant, 0.0f, 1.0f, "%.4f", ImGuiSliderFlags_Logarithmic);
+      ImGui::SliderFloat("Time Constant##pid", &constants.timeConstant, 0.0f, 0.0001f, "%.8f", ImGuiSliderFlags_Logarithmic);
       ImGui::SetNextItemWidth(200.0f);
       ImGui::SliderInt("Input Filter##pid", &constants.inputFilter, 0, 15);
       if (ImGui::Button("Send##pid")) {
@@ -525,11 +518,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           pushLog(logs, "Disconnected.");
         }
         if (ImGui::Button("Send Test")) {
-          if (serialClient.sendLine("PING")) {
-            pushLog(logs, "TX: PING");
-          } else {
-            pushLog(logs, "TX failed: " + serialClient.lastError());
-          }
+          static const std::string kPingLine = "PING\n";
+          serialClient.sendBytesAsync(kPingLine.data(), kPingLine.size(), "PING");
         }
       }
     }

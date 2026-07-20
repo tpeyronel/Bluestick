@@ -116,8 +116,19 @@ void MessageReader::readerLoop(HANDLE h) {
     // searching for the next SOF byte, which resyncs after corrupted or
     // lost bytes without relying on idle gaps between frames.
 
-    // Read timeouts are configured once when the port is opened
-    // (BluetoothSerial::connect); framing no longer needs its own.
+    // BluetoothSerialClient's writer thread issues WriteFile on this same
+    // HANDLE from another thread. Serial/Bluetooth-SPP drivers commonly
+    // serialize all I/O requests on a device object, so a long blocking
+    // ReadFile call here directly delays queued writes. Force a short, flat
+    // per-call timeout (independent of requested buffer size) so this thread
+    // never holds the handle for long, regardless of how connect() tuned it.
+    COMMTIMEOUTS timeouts{};
+    timeouts.ReadIntervalTimeout         = 0;
+    timeouts.ReadTotalTimeoutConstant    = 15;
+    timeouts.ReadTotalTimeoutMultiplier  = 0;
+    timeouts.WriteTotalTimeoutConstant   = 100;
+    timeouts.WriteTotalTimeoutMultiplier = 10;
+    SetCommTimeouts(h, &timeouts);
 
     enum class State { WaitSof, WaitType, AccumPayload };
     State state = State::WaitSof;

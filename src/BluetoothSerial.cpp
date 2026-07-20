@@ -169,36 +169,17 @@ bool BluetoothSerialClient::connect(const std::string& port, DWORD baudRate) {
 
   currentPort_ = port;
   lastError_.clear();
+  startWriter();
   return true;
 }
 
 void BluetoothSerialClient::disconnect() {
+  stopWriter();
   if (serialHandle_ != INVALID_HANDLE_VALUE) {
     CloseHandle(serialHandle_);
     serialHandle_ = INVALID_HANDLE_VALUE;
   }
   currentPort_.clear();
-}
-
-bool BluetoothSerialClient::sendLine(const std::string& message) {
-  if (!isConnected()) {
-    setError("No connected serial device");
-    return false;
-  }
-
-  const std::string payload = message + "\n";
-  DWORD written = 0;
-  if (!WriteFile(serialHandle_, payload.data(), static_cast<DWORD>(payload.size()), &written, nullptr)) {
-    setError("WriteFile failed");
-    return false;
-  }
-
-  if (written != payload.size()) {
-    setError("Partial write on serial port");
-    return false;
-  }
-
-  return true;
 }
 
 bool BluetoothSerialClient::sendBytes(const void* data, size_t size) {
@@ -224,6 +205,69 @@ bool BluetoothSerialClient::sendBytes(const void* data, size_t size) {
   }
 
   return true;
+}
+
+void BluetoothSerialClient::sendBytesAsync(const void* data, size_t size, std::string description) {
+  PendingSend item;
+  item.bytes.assign(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size);
+  item.description = std::move(description);
+
+  {
+    std::lock_guard<std::mutex> lock(writeQueueMutex_);
+    writeQueue_.push_back(std::move(item));
+  }
+  writeQueueCv_.notify_one();
+}
+
+std::vector<BluetoothSerialClient::SendResult> BluetoothSerialClient::pollSendResults() {
+  std::lock_guard<std::mutex> lock(resultsMutex_);
+  std::vector<SendResult> results;
+  results.swap(pendingResults_);
+  return results;
+}
+
+void BluetoothSerialClient::startWriter() {
+  stopWriter();
+  writerStop_.store(false);
+  writerThread_ = std::thread(&BluetoothSerialClient::writerLoop, this);
+}
+
+void BluetoothSerialClient::stopWriter() {
+  if (!writerThread_.joinable()) {
+    return;
+  }
+  writerStop_.store(true);
+  writeQueueCv_.notify_all();
+  writerThread_.join();
+
+  std::lock_guard<std::mutex> lock(writeQueueMutex_);
+  writeQueue_.clear();
+}
+
+void BluetoothSerialClient::writerLoop() {
+  while (true) {
+    std::unique_lock<std::mutex> lock(writeQueueMutex_);
+    writeQueueCv_.wait(lock, [this] { return writerStop_.load() || !writeQueue_.empty(); });
+    if (writerStop_.load()) {
+      return;
+    }
+
+    PendingSend item = std::move(writeQueue_.front());
+    writeQueue_.pop_front();
+    lock.unlock();
+
+    const bool ok = sendBytes(item.bytes.data(), item.bytes.size());
+
+    SendResult result;
+    result.description = std::move(item.description);
+    result.success      = ok;
+    if (!ok) {
+      result.error = lastError();
+    }
+
+    std::lock_guard<std::mutex> resultLock(resultsMutex_);
+    pendingResults_.push_back(std::move(result));
+  }
 }
 
 int BluetoothSerialClient::readBytes(void* buf, size_t size) {
