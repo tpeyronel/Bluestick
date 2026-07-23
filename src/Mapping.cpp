@@ -15,7 +15,7 @@ uint8_t mapThrottle(float value) {
 }
 
 bool isNearZero(float value) {
-  return value <= 0.01f;
+  return std::fabs(value) <= 0.01f;
 }
 
 uint32_t bindingKey(const ActionBinding& binding, size_t index) {
@@ -48,10 +48,12 @@ Message_t buildBinaryMessage(ActionType action) {
   return message;
 }
 
+// `value` is a signed throttle: magnitude drives the motor, sign chooses direction.
 Message_t buildThrottleMessage(float value) {
   Message_t message{};
   message.set_throttle.type = MSG_TYPE_SET_THROTTLE;
-  message.set_throttle.throttle = mapThrottle(value);
+  message.set_throttle.throttle = mapThrottle(std::fabs(value));
+  message.set_throttle.is_forwards = value >= 0.0f ? 1 : 0;
   return message;
 }
 
@@ -105,8 +107,8 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
     }
 
     const size_t idx = static_cast<size_t>(binding.sourceIndex);
-    const float currentValue = current.axes[idx];
     if (isBinaryAction(binding.action)) {
+      const float currentValue = current.axes[idx];
       const bool previousActive = std::fabs(previous.axes[idx]) >= binding.axisThreshold;
       const bool currentActive = std::fabs(currentValue) >= binding.axisThreshold;
       if (!previousActive && currentActive) {
@@ -123,6 +125,12 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
       continue;
     }
 
+    // Continuous throttle is driven by both triggers: RT forward, LT reverse.
+    // The signed sum picks magnitude and direction; buildThrottleMessage encodes both.
+    const float rt = current.axes[static_cast<size_t>(GamepadAxis::RT)];
+    const float lt = current.axes[static_cast<size_t>(GamepadAxis::LT)];
+    const float currentValue = rt - lt;
+
     const float previousSentValue = lastAxisSentValues_[key];
     const float delta = std::fabs(currentValue - previousSentValue);
 
@@ -132,7 +140,7 @@ std::vector<Message_t> MappingEngine::evaluate(const InputSnapshot& previous,
                             std::chrono::duration_cast<std::chrono::milliseconds>(now - iter->second).count() >=
                                 binding.axisMinIntervalMs;
 
-    if (isNearZero(currentValue) && previousSentValue > 0.0f) {
+    if (isNearZero(currentValue) && previousSentValue != 0.0f) {
       messages.push_back(buildThrottleMessage(0.0f));
       lastAxisSentValues_[key] = 0.0f;
       lastAxisSentTimes_[key] = now;

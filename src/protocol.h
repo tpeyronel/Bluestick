@@ -22,6 +22,7 @@ enum MessageType : uint8_t {
 struct PACKED MessageSetThrottle {
     enum MessageType type;
     uint8_t throttle;
+    uint8_t is_forwards;
 };
 
 struct PACKED MessageToggleTc {
@@ -40,7 +41,6 @@ struct PACKED MessageDecCc {
     enum MessageType type;
 };
 
-// Sent individually (not part of Message_t union) — 18 bytes.
 struct PACKED MessageSetConstants {
     enum MessageType type;
     float Kp;
@@ -57,6 +57,7 @@ typedef union PACKED Message_t {
     struct MessageToggleCc toggle_cc;
     struct MessageIncCc inc_cc;
     struct MessageDecCc dec_cc;
+    struct MessageSetConstants set_constants;
 } Message_t;
 
 constexpr size_t MESSAGE_SIZE = sizeof(Message_t);

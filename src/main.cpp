@@ -80,7 +80,8 @@ bool CreateDeviceD3D(HWND hWnd) {
 std::string describeMessage(const Message_t& message) {
   switch (message.type) {
     case MSG_TYPE_SET_THROTTLE:
-      return "SetThrottle=" + std::to_string(message.set_throttle.throttle);
+      return "SetThrottle=" + std::to_string(message.set_throttle.throttle) +
+             (message.set_throttle.is_forwards ? " (fwd)" : " (rev)");
     case MSG_TYPE_TOGGLE_TC:
       return "ToggleTc";
     case MSG_TYPE_TOGGLE_CC:
@@ -337,12 +338,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     auto messages =
         mappingEngine.evaluate(previousSnapshot, currentSnapshot, std::chrono::steady_clock::now());
 
-    if (manualThrottleEnabled) {
-      messages.erase(std::remove_if(messages.begin(), messages.end(),
-          [](const Message_t& m){ return m.type == MSG_TYPE_SET_THROTTLE; }),
-          messages.end());
-    }
-
     for (const auto& message : messages) {
       if (serialClient.isConnected()) {
         serialClient.sendBytesAsync(&message, MESSAGE_SIZE, describeMessage(message));
@@ -353,9 +348,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     // Send manual throttle message when slider was moved
     if (manualThrottleEnabled && manualThrottleChanged) {
+      const float manualSigned = std::clamp(manualThrottle, -1.0f, 1.0f);
       Message_t manualMsg{};
-      manualMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
-      manualMsg.set_throttle.throttle = static_cast<uint8_t>(std::clamp(manualThrottle, 0.0f, 1.0f) * 255.0f);
+      manualMsg.set_throttle.type        = MSG_TYPE_SET_THROTTLE;
+      manualMsg.set_throttle.throttle    = static_cast<uint8_t>(std::fabs(manualSigned) * 255.0f);
+      manualMsg.set_throttle.is_forwards = manualSigned >= 0.0f ? 1 : 0;
       if (serialClient.isConnected()) {
         serialClient.sendBytesAsync(&manualMsg, MESSAGE_SIZE, describeMessage(manualMsg));
       } else {
@@ -366,8 +363,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Send zero throttle when manual mode is turned off
     if (prevManualThrottleEnabled && !manualThrottleEnabled) {
       Message_t zeroMsg{};
-      zeroMsg.set_throttle.type     = MSG_TYPE_SET_THROTTLE;
-      zeroMsg.set_throttle.throttle = 0;
+      zeroMsg.set_throttle.type        = MSG_TYPE_SET_THROTTLE;
+      zeroMsg.set_throttle.throttle    = 0;
+      zeroMsg.set_throttle.is_forwards = 1;
       if (serialClient.isConnected()) {
         serialClient.sendBytesAsync(&zeroMsg, MESSAGE_SIZE, "manual throttle off → " + describeMessage(zeroMsg));
       }
@@ -415,7 +413,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     if (ImGui::CollapsingHeader("Manual Controls")) {
       ImGui::Checkbox("Enable manual throttle", &manualThrottleEnabled);
       if (!manualThrottleEnabled) ImGui::BeginDisabled();
-      manualThrottleChanged = ImGui::SliderFloat("Throttle##manual", &manualThrottle, 0.0f, 1.0f, "%.2f");
+      manualThrottleChanged = ImGui::SliderFloat("Throttle##manual", &manualThrottle, -1.0f, 1.0f, "%.2f");
       if (!manualThrottleEnabled) ImGui::EndDisabled();
 
       auto sendAction = [&](MessageType type) {
